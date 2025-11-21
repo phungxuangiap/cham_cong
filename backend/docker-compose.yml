@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  mysql_db:
+    image: mysql:8.0 # Phiên bản MySQL được đề xuất
+    container_name: attendance_mysql
+    restart: always
+    environment:
+      # Định nghĩa tên CSDL sẽ được tạo tự động
+      MYSQL_DATABASE: Attendance_System_Final
+      # Mật khẩu root (nên thay đổi cho môi trường Production)
+      MYSQL_ROOT_PASSWORD: root_password
+      # Tạo một user/pass riêng cho ứng dụng (tùy chọn)
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+    ports:
+      # Ánh xạ cổng: 33060 trên máy bạn đến cổng 3306 trong container
+      - "33060:3306"
+    volumes:
+      # 1. Tự động khởi tạo CSDL/Bảng/Dữ liệu mẫu
+      - ./initdb:/docker-entrypoint-initdb.d
+      # 2. Đảm bảo dữ liệu CSDL được lưu trữ bền vững trên máy host
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
