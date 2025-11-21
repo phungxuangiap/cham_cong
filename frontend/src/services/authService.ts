@@ -55,6 +55,11 @@ const authService = {
     return apiClient.get(`/auth/profile/${employeeId}`);
   },
 
+  // Get All Employees
+  getAllEmployees: async () => {
+    return apiClient.get('/auth/employees');
+  },
+
   // Update Profile
   updateProfile: async (employeeId: string, data: any) => {
     return apiClient.put(`/auth/update-profile/${employeeId}`, data);

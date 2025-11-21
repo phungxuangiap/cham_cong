@@ -451,6 +451,33 @@ class AuthController {
       });
     }
   }
+
+  static async getAllEmployees(req, res) {
+    try {
+      const { role } = req.user;
+
+      // Check if user has Admin or HR role
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể xem danh sách nhân viên.'
+        });
+      }
+
+      const employees = await EmployeeModel.findAll();
+
+      return res.status(200).json({
+        message: 'Lấy danh sách nhân viên thành công',
+        employees: employees
+      });
+
+    } catch (error) {
+      console.error('Get all employees error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = AuthController;

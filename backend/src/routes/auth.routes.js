@@ -24,6 +24,12 @@ router.post('/admin-create-account',
 
 router.get('/profile/:employeeId', AuthController.getProfile);
 
+// Get all employees - protected route for Admin/HR
+router.get('/employees',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getAllEmployees
+);
+
 // Update profile - protected route
 router.put('/update-profile/:employeeId',
   AuthMiddleware.verifyAccessToken,

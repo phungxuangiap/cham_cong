@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { logout } from '../features/auth/authSlice';
+import authService from '../services/authService';
 import { 
   ArrowRightOnRectangleIcon, 
   UserCircleIcon,
@@ -12,9 +13,17 @@ import {
   HomeIcon,
   UserPlusIcon,
   Bars3Icon,
-  XMarkIcon
+  XMarkIcon,
+  PencilIcon,
+  MagnifyingGlassIcon,
+  IdentificationIcon,
+  PhoneIcon,
+  EnvelopeIcon,
+  BriefcaseIcon
 } from '@heroicons/react/24/outline';
 import CreateEmployeeModal from '../components/common/CreateEmployeeModal';
+import UpdateProfileModal from '../components/common/UpdateProfileModal';
+import EmployeeDetailModal from '../components/common/EmployeeDetailModal';
 
 const HRDashboard = () => {
   const navigate = useNavigate();
@@ -23,6 +32,79 @@ const HRDashboard = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [filteredEmployees, setFilteredEmployees] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [displayCount, setDisplayCount] = useState(20);
+
+  useEffect(() => {
+    if (activeTab === 'employees') {
+      fetchEmployees();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    filterEmployees();
+    setDisplayCount(20); // Reset display count when filters change
+  }, [employees, searchTerm, roleFilter]);
+
+  const fetchEmployees = async () => {
+    setLoading(true);
+    try {
+      const response = await authService.getAllEmployees();
+      setEmployees(response.data.employees);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMore = () => {
+    setDisplayCount(prev => prev + 20);
+  };
+
+  const filterEmployees = () => {
+    let filtered = employees;
+
+    // Filter by role
+    if (roleFilter !== 'all') {
+      filtered = filtered.filter(emp => emp.role === roleFilter);
+    }
+
+    // Filter by search term
+    if (searchTerm) {
+      filtered = filtered.filter(emp =>
+        emp.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        emp.employee_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        emp.username?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    setFilteredEmployees(filtered);
+  };
+
+  const displayedEmployees = filteredEmployees.slice(0, displayCount);
+  const hasMore = displayCount < filteredEmployees.length;
+
+  const handleViewEmployee = (employee: any) => {
+    setSelectedEmployee(employee);
+    setShowDetailModal(true);
+  };
+
+  const handleEditFromDetail = () => {
+    setShowDetailModal(false);
+    setShowUpdateModal(true);
+  };
+
+  const handleUpdateSuccess = async () => {
+    await fetchEmployees();
+  };
 
   const handleLogout = () => {
     dispatch(logout());
@@ -255,18 +337,177 @@ const HRDashboard = () => {
           )}
 
           {activeTab === 'employees' && (
-            <div className="card">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Danh sách nhân viên</h3>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="btn btn-primary flex items-center gap-2"
-                >
-                  <UserPlusIcon className="h-5 w-5" />
-                  Thêm nhân viên mới
-                </button>
+            <div className="space-y-6">
+              {/* Search and Filter Bar */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4">
+                  {/* Search Input */}
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm theo tên, ID, hoặc username..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Role Filter */}
+                  <div className="w-full md:w-48">
+                    <select
+                      value={roleFilter}
+                      onChange={(e) => setRoleFilter(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="all">Tất cả vai trò</option>
+                      <option value="Admin">Admin</option>
+                      <option value="HR">HR</option>
+                      <option value="Employee">Employee</option>
+                      <option value="Employee_none_account">Employee_none_account</option>
+                    </select>
+                  </div>
+
+                  {/* Add Employee Button */}
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="btn btn-primary flex items-center justify-center gap-2 whitespace-nowrap bg-green-600 hover:bg-green-700"
+                  >
+                    <UserPlusIcon className="h-5 w-5" />
+                    Thêm nhân viên
+                  </button>
+                </div>
+
+                {/* Results Count */}
+                <div className="mt-4 text-sm text-gray-600">
+                  Hiển thị <span className="font-semibold">{filteredEmployees.length}</span> / <span className="font-semibold">{employees.length}</span> nhân viên
+                </div>
               </div>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+
+              {/* Employee List */}
+              <div className="card flex flex-col" style={{ height: 'calc(100vh - 280px)' }}>
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+                  </div>
+                ) : filteredEmployees.length === 0 ? (
+                  <div className="text-center py-12">
+                    <UserGroupIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không tìm thấy nhân viên nào</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                      {displayedEmployees.map((employee) => (
+                        <div
+                          key={employee.employee_id}
+                          onClick={() => handleViewEmployee(employee)}
+                          className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-green-300 cursor-pointer transition-all duration-200"
+                        >
+                          <div className="flex items-center gap-4 flex-1">
+                            {/* Avatar */}
+                            <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                              <span className="text-green-600 font-bold text-lg">
+                                {employee.full_name?.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+
+                            {/* Main Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="text-base font-semibold text-gray-900 truncate">
+                                  {employee.full_name}
+                                </h3>
+                                {employee.role && (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    employee.role === 'Admin'
+                                      ? 'bg-purple-100 text-purple-800'
+                                      : employee.role === 'HR'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : employee.role === 'Employee'
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {employee.role}
+                                  </span>
+                                )}
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  employee.status === 'active'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {employee.status === 'active' ? 'Active' : 'Inactive'}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <IdentificationIcon className="h-4 w-4" />
+                                  {employee.employee_id}
+                                </span>
+                                {employee.username && (
+                                  <span className="flex items-center gap-1">
+                                    <UserCircleIcon className="h-4 w-4" />
+                                    @{employee.username}
+                                  </span>
+                                )}
+                                {employee.phone_number && (
+                                  <span className="flex items-center gap-1">
+                                    <PhoneIcon className="h-4 w-4" />
+                                    {employee.phone_number}
+                                  </span>
+                                )}
+                                {employee.personal_email && (
+                                  <span className="flex items-center gap-1">
+                                    <EnvelopeIcon className="h-4 w-4" />
+                                    {employee.personal_email}
+                                  </span>
+                                )}
+                              </div>
+                              {(employee.position_id || employee.department_id) && (
+                                <div className="flex gap-3 mt-1 text-xs text-gray-600">
+                                  {employee.position_id && (
+                                    <span className="flex items-center gap-1">
+                                      <BriefcaseIcon className="h-3.5 w-3.5" />
+                                      {employee.position_id}
+                                    </span>
+                                  )}
+                                  {employee.department_id && (
+                                    <span>• {employee.department_id}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewEmployee(employee);
+                            }}
+                            className="ml-4 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-medium transition-colors flex items-center gap-2 flex-shrink-0"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                            Chi tiết
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Load More Button */}
+                    {hasMore && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 text-center flex-shrink-0">
+                        <button
+                          onClick={loadMore}
+                          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+                        >
+                          Xem thêm ({filteredEmployees.length - displayCount} còn lại)
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -306,7 +547,32 @@ const HRDashboard = () => {
         onClose={() => setShowCreateModal(false)}
         onSuccess={() => {
           alert('Tạo tài khoản nhân viên thành công!');
+          if (activeTab === 'employees') {
+            fetchEmployees();
+          }
         }}
+      />
+
+      {/* Employee Detail Modal */}
+      <EmployeeDetailModal
+        isOpen={showDetailModal}
+        onClose={() => {
+          setShowDetailModal(false);
+          setSelectedEmployee(null);
+        }}
+        onEdit={handleEditFromDetail}
+        employeeData={selectedEmployee}
+      />
+
+      {/* Update Profile Modal */}
+      <UpdateProfileModal
+        isOpen={showUpdateModal}
+        onClose={() => {
+          setShowUpdateModal(false);
+          setSelectedEmployee(null);
+        }}
+        onSuccess={handleUpdateSuccess}
+        employeeData={selectedEmployee}
       />
     </div>
   );

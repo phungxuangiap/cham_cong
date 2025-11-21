@@ -110,6 +110,24 @@ class EmployeeModel {
       throw error;
     }
   }
+
+  static async findAll() {
+    try {
+      const connection = await pool.getConnection();
+      const [rows] = await connection.query(`
+        SELECT e.*, u.username, u.role 
+        FROM EMPLOYEE e
+        LEFT JOIN USER_ACCOUNT u ON e.employee_id = u.employee_id
+        ORDER BY e.full_name ASC
+      `);
+      connection.release();
+      
+      return rows;
+    } catch (error) {
+      console.error('Error finding all employees:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = EmployeeModel;
