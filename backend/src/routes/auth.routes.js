@@ -36,6 +36,19 @@ router.put('/update-profile/:employeeId',
   AuthController.updateProfile
 );
 
+// Get user contract - protected route
+router.get('/contract/:employeeId',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getUserContract
+);
+
+// Create user contract - protected route for Admin/HR
+router.post('/contract',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.createUserContract
+);
+
 // Legacy route
 router.post('/register', AuthController.register);
 

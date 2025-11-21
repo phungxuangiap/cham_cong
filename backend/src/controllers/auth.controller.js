@@ -1,5 +1,6 @@
 const UserModel = require('../../models/user.model');
 const EmployeeModel = require('../../models/employee.model');
+const ContractModel = require('../../models/contract.model');
 const JWTConfig = require('../../config/jwt.config');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
@@ -472,6 +473,102 @@ class AuthController {
 
     } catch (error) {
       console.error('Get all employees error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  static async getUserContract(req, res) {
+    try {
+      const { employeeId } = req.params;
+
+      // Validate input
+      if (!employeeId) {
+        return res.status(400).json({
+          message: 'ID nhân viên là bắt buộc.'
+        });
+      }
+
+      // Check if employee exists
+      const employee = await EmployeeModel.findById(employeeId);
+      if (!employee) {
+        return res.status(404).json({
+          message: 'Nhân viên không tồn tại.'
+        });
+      }
+
+      // Get latest contract
+      const contract = await ContractModel.getLatestContract(employeeId);
+
+      if (!contract) {
+        return res.status(404).json({
+          message: 'Không tìm thấy hợp đồng cho nhân viên này.',
+          contract: null
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Lấy thông tin hợp đồng thành công',
+        contract: contract
+      });
+
+    } catch (error) {
+      console.error('Get user contract error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  static async createUserContract(req, res) {
+    try {
+      const { role } = req.user;
+
+      // Check if user has Admin or HR role
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể tạo hợp đồng.'
+        });
+      }
+
+      const { employeeId, contractType, startDate, endDate } = req.body;
+
+      // Validate required fields
+      if (!employeeId || !contractType || !startDate) {
+        return res.status(400).json({
+          message: 'ID nhân viên, loại hợp đồng và ngày bắt đầu là bắt buộc.'
+        });
+      }
+
+      // Check if employee exists
+      const employee = await EmployeeModel.findById(employeeId);
+      if (!employee) {
+        return res.status(404).json({
+          message: 'Nhân viên không tồn tại.'
+        });
+      }
+
+      // Create contract
+      const contractData = {
+        employee_id: employeeId,
+        signing_date: new Date().toISOString().split('T')[0],
+        contract_type: contractType,
+        start_date: startDate,
+        end_date: endDate || null
+      };
+
+      await ContractModel.create(contractData);
+
+      return res.status(201).json({
+        message: 'Tạo hợp đồng thành công',
+        contract: contractData
+      });
+
+    } catch (error) {
+      console.error('Create user contract error:', error);
       return res.status(500).json({
         message: 'Lỗi máy chủ nội bộ.',
         error: error.message

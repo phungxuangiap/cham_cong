@@ -1,5 +1,8 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
+import authService from '../../services/authService';
+import { useAppSelector } from '../../app/hooks';
+import CreateContractModal from './CreateContractModal';
 import { 
   XMarkIcon, 
   UserCircleIcon,
@@ -9,7 +12,9 @@ import {
   BriefcaseIcon,
   CalendarIcon,
   IdentificationIcon,
-  PencilIcon
+  PencilIcon,
+  DocumentTextIcon,
+  PlusIcon
 } from '@heroicons/react/24/outline';
 
 interface EmployeeDetailModalProps {
@@ -20,6 +25,36 @@ interface EmployeeDetailModalProps {
 }
 
 const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: EmployeeDetailModalProps) => {
+  const { user } = useAppSelector((state: any) => state.auth);
+  const [contract, setContract] = useState<any>(null);
+  const [loadingContract, setLoadingContract] = useState(false);
+  const [showCreateContractModal, setShowCreateContractModal] = useState(false);
+
+  const isAdminOrHR = user?.role === 'Admin' || user?.role === 'HR';
+
+  useEffect(() => {
+    if (isOpen && employeeData?.employee_id) {
+      fetchContract();
+    }
+  }, [isOpen, employeeData]);
+
+  const fetchContract = async () => {
+    setLoadingContract(true);
+    try {
+      const response = await authService.getUserContract(employeeData.employee_id);
+      setContract(response.data.contract);
+    } catch (error) {
+      console.error('Error fetching contract:', error);
+      setContract(null);
+    } finally {
+      setLoadingContract(false);
+    }
+  };
+
+  const handleCreateContractSuccess = () => {
+    fetchContract(); // Refresh contract data
+  };
+
   if (!employeeData) return null;
 
   const formatDate = (dateString: string | null) => {
@@ -226,6 +261,33 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
                             </p>
                           </div>
                         </div>
+
+                        <div className="flex items-start gap-3">
+                          <DocumentTextIcon className="h-5 w-5 text-gray-400 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-500">Ngày hết hạn hợp đồng</p>
+                            {loadingContract ? (
+                              <p className="text-sm text-gray-400">Đang tải...</p>
+                            ) : contract?.end_date ? (
+                              <p className="text-sm font-medium text-gray-900">
+                                {formatDate(contract.end_date)}
+                              </p>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm text-gray-400">Chưa có hợp đồng</p>
+                                {isAdminOrHR && (
+                                  <button
+                                    onClick={() => setShowCreateContractModal(true)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors"
+                                  >
+                                    <PlusIcon className="h-3 w-3" />
+                                    Tạo hợp đồng
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -238,12 +300,12 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
                       <div className="space-y-3">
                         <div className="flex items-start gap-3">
                           <div className={`h-5 w-5 rounded-full mt-0.5 ${
-                            employeeData.status === 'active' ? 'bg-green-500' : 'bg-red-500'
+                            employeeData.status === 'Active' ? 'bg-green-500' : 'bg-red-500'
                           }`} />
                           <div>
                             <p className="text-sm text-gray-500">Trạng thái làm việc</p>
                             <p className="text-sm font-medium text-gray-900">
-                              {employeeData.status === 'active' ? 'Đang làm việc' : 'Ngừng hoạt động'}
+                              {employeeData.status === 'Active' ? 'Đang làm việc' : 'Ngừng hoạt động'}
                             </p>
                           </div>
                         </div>
@@ -283,6 +345,16 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
                   >
                     Đóng
                   </button>
+                  {isAdminOrHR && !contract && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateContractModal(true)}
+                      className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors flex items-center gap-2"
+                    >
+                      <PlusIcon className="h-5 w-5" />
+                      Tạo hợp đồng
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onEdit}
@@ -296,6 +368,15 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
             </Transition.Child>
           </div>
         </div>
+
+        {/* Create Contract Modal */}
+        <CreateContractModal
+          isOpen={showCreateContractModal}
+          onClose={() => setShowCreateContractModal(false)}
+          onSuccess={handleCreateContractSuccess}
+          employeeId={employeeData.employee_id}
+          employeeName={employeeData.full_name}
+        />
       </Dialog>
     </Transition>
   );

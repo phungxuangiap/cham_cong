@@ -65,6 +65,16 @@ const authService = {
     return apiClient.put(`/auth/update-profile/${employeeId}`, data);
   },
 
+  // Get User Contract
+  getUserContract: async (employeeId: string) => {
+    return apiClient.get(`/auth/contract/${employeeId}`);
+  },
+
+  // Create User Contract
+  createUserContract: async (data: any) => {
+    return apiClient.post('/auth/contract', data);
+  },
+
   // Logout
   logout: async () => {
     return apiClient.post('/auth/logout');

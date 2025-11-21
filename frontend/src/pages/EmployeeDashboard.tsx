@@ -33,6 +33,14 @@ interface EmployeeData {
   manager_id: string | null;
 }
 
+interface ContractData {
+  employee_id: string;
+  signing_date: string;
+  contract_type: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
 const EmployeeDashboard = () => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
@@ -40,6 +48,7 @@ const EmployeeDashboard = () => {
   const [activeTab, setActiveTab] = useState('profile');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [employeeData, setEmployeeData] = useState<EmployeeData | null>(null);
+  const [contract, setContract] = useState<ContractData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
@@ -49,6 +58,15 @@ const EmployeeDashboard = () => {
         try {
           const response = await authService.getProfile(user.employee_id);
           setEmployeeData(response.data.user);
+          
+          // Fetch contract data
+          try {
+            const contractResponse = await authService.getUserContract(user.employee_id);
+            setContract(contractResponse.data.contract);
+          } catch (contractError) {
+            console.log('No contract found for user');
+            setContract(null);
+          }
         } catch (error) {
           console.error('Error fetching employee data:', error);
         } finally {
@@ -299,6 +317,13 @@ const EmployeeDashboard = () => {
                           <label className="text-sm font-medium text-gray-500">Mã quản lý</label>
                           <p className="text-base font-semibold text-gray-900 mt-1">
                             {employeeData?.manager_id || 'N/A'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">Ngày hết hạn hợp đồng</label>
+                          <p className="text-base font-semibold text-gray-900 mt-1">
+                            {contract?.end_date ? new Date(contract.end_date).toLocaleDateString('vi-VN') : 'Chưa có hợp đồng'}
                           </p>
                         </div>
                         

@@ -432,11 +432,11 @@ const HRDashboard = () => {
                                   </span>
                                 )}
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                  employee.status === 'active'
+                                  employee.status === 'Active'
                                     ? 'bg-green-100 text-green-800'
                                     : 'bg-red-100 text-red-800'
                                 }`}>
-                                  {employee.status === 'active' ? 'Active' : 'Inactive'}
+                                  {employee.status === 'Active' ? 'Active' : 'Inactive'}
                                 </span>
                               </div>
                               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
