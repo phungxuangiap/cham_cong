@@ -1,6 +1,8 @@
 const UserModel = require('../../models/user.model');
 const EmployeeModel = require('../../models/employee.model');
 const ContractModel = require('../../models/contract.model');
+const DepartmentModel = require('../../models/department.model');
+const WorkShiftModel = require('../../models/workshift.model');
 const JWTConfig = require('../../config/jwt.config');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
@@ -569,6 +571,658 @@ class AuthController {
 
     } catch (error) {
       console.error('Create user contract error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  static async getAllContracts(req, res) {
+    try {
+      const { role } = req.user;
+
+      // Check if user has HR role
+      if (role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ HR mới có thể xem tất cả hợp đồng.'
+        });
+      }
+
+      const contracts = await ContractModel.getAllContractsWithEmployees();
+
+      return res.status(200).json({
+        message: 'Lấy danh sách hợp đồng thành công',
+        contracts: contracts
+      });
+
+    } catch (error) {
+      console.error('Get all contracts error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  static async updateUserContract(req, res) {
+    try {
+      const { role } = req.user;
+
+      // Check if user has Admin or HR role
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể cập nhật hợp đồng.'
+        });
+      }
+
+      const { employeeId, signingDate, contractType, startDate, endDate } = req.body;
+
+      console.log('Update contract request:', { employeeId, signingDate, contractType, startDate, endDate });
+
+      // Validate required fields
+      if (!employeeId || !signingDate) {
+        return res.status(400).json({
+          message: 'ID nhân viên và ngày ký là bắt buộc.'
+        });
+      }
+
+      // Check if employee exists
+      const employee = await EmployeeModel.findById(employeeId);
+      if (!employee) {
+        return res.status(404).json({
+          message: 'Nhân viên không tồn tại.'
+        });
+      }
+
+      // Check if contract exists with the specific signing_date
+      const existingContract = await ContractModel.getContractBySigningDate(employeeId, signingDate);
+      if (!existingContract) {
+        return res.status(404).json({
+          message: 'Hợp đồng không tồn tại với ngày ký này.'
+        });
+      }
+
+      // Update contract
+      const contractData = {
+        contract_type: contractType,
+        start_date: startDate,
+        end_date: endDate || null
+      };
+
+      await ContractModel.update(employeeId, signingDate, contractData);
+
+      return res.status(200).json({
+        message: 'Cập nhật hợp đồng thành công',
+        contract: {
+          employee_id: employeeId,
+          signing_date: signingDate,
+          ...contractData
+        }
+      });
+
+    } catch (error) {
+      console.error('Update user contract error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== DEPARTMENT MANAGEMENT ====================
+
+  /**
+   * Get all departments (All roles)
+   */
+  static async getAllDepartments(req, res) {
+    try {
+      const departments = await DepartmentModel.getAll();
+      
+      return res.status(200).json({
+        message: 'Lấy danh sách phòng ban thành công',
+        departments
+      });
+    } catch (error) {
+      console.error('Get all departments error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get department by ID (All roles)
+   */
+  static async getDepartmentById(req, res) {
+    try {
+      const { departmentId } = req.params;
+
+      if (!departmentId) {
+        return res.status(400).json({
+          message: 'ID phòng ban là bắt buộc.'
+        });
+      }
+
+      const department = await DepartmentModel.getById(departmentId);
+
+      if (!department) {
+        return res.status(404).json({
+          message: 'Phòng ban không tồn tại.'
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Lấy thông tin phòng ban thành công',
+        department
+      });
+    } catch (error) {
+      console.error('Get department by ID error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Create department (Admin only)
+   */
+  static async createDepartment(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể tạo phòng ban.'
+        });
+      }
+
+      const { departmentId, departmentName, description, managerId, parentDepartmentId } = req.body;
+
+      if (!departmentId || !departmentName) {
+        return res.status(400).json({
+          message: 'ID và tên phòng ban là bắt buộc.'
+        });
+      }
+
+      // Check if department ID already exists
+      const existingDepartment = await DepartmentModel.getById(departmentId);
+      if (existingDepartment) {
+        return res.status(400).json({
+          message: 'ID phòng ban đã tồn tại.'
+        });
+      }
+
+      // If parentDepartmentId provided, check if parent department exists
+      if (parentDepartmentId) {
+        const parentDepartment = await DepartmentModel.getById(parentDepartmentId);
+        if (!parentDepartment) {
+          return res.status(404).json({
+            message: 'Phòng ban cha không tồn tại.'
+          });
+        }
+      }
+
+      // If managerId provided, check if employee exists
+      if (managerId) {
+        const manager = await EmployeeModel.findById(managerId);
+        if (!manager) {
+          return res.status(404).json({
+            message: 'Nhân viên quản lý không tồn tại.'
+          });
+        }
+      }
+
+      const department = await DepartmentModel.create({
+        departmentId,
+        departmentName,
+        description,
+        managerId,
+        parentDepartmentId
+      });
+
+      return res.status(201).json({
+        message: 'Tạo phòng ban thành công',
+        department
+      });
+    } catch (error) {
+      console.error('Create department error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Update department (Admin only)
+   */
+  static async updateDepartment(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể cập nhật phòng ban.'
+        });
+      }
+
+      const { departmentId } = req.params;
+      const { departmentName, description, managerId, parentDepartmentId } = req.body;
+
+      if (!departmentId) {
+        return res.status(400).json({
+          message: 'ID phòng ban là bắt buộc.'
+        });
+      }
+
+      // Check if department exists
+      const existingDepartment = await DepartmentModel.getById(departmentId);
+      if (!existingDepartment) {
+        return res.status(404).json({
+          message: 'Phòng ban không tồn tại.'
+        });
+      }
+
+      // If parentDepartmentId provided, check if parent department exists and prevent circular reference
+      if (parentDepartmentId !== undefined && parentDepartmentId !== null) {
+        if (parentDepartmentId === departmentId) {
+          return res.status(400).json({
+            message: 'Phòng ban không thể là phòng ban cha của chính nó.'
+          });
+        }
+        if (parentDepartmentId) {
+          const parentDepartment = await DepartmentModel.getById(parentDepartmentId);
+          if (!parentDepartment) {
+            return res.status(404).json({
+              message: 'Phòng ban cha không tồn tại.'
+            });
+          }
+        }
+      }
+
+      // If managerId provided, check if employee exists
+      if (managerId) {
+        const manager = await EmployeeModel.findById(managerId);
+        if (!manager) {
+          return res.status(404).json({
+            message: 'Nhân viên quản lý không tồn tại.'
+          });
+        }
+      }
+
+      const department = await DepartmentModel.update(departmentId, {
+        departmentName: departmentName || existingDepartment.department_name,
+        description: description !== undefined ? description : existingDepartment.description,
+        managerId: managerId !== undefined ? managerId : existingDepartment.manager_id,
+        parentDepartmentId: parentDepartmentId !== undefined ? parentDepartmentId : existingDepartment.parent_department_id
+      });
+
+      return res.status(200).json({
+        message: 'Cập nhật phòng ban thành công',
+        department
+      });
+    } catch (error) {
+      console.error('Update department error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Delete department (Admin only)
+   */
+  static async deleteDepartment(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể xóa phòng ban.'
+        });
+      }
+
+      const { departmentId } = req.params;
+      const { transferToDepartmentId } = req.body;
+
+      if (!departmentId) {
+        return res.status(400).json({
+          message: 'ID phòng ban là bắt buộc.'
+        });
+      }
+
+      // Check if department exists
+      const existingDepartment = await DepartmentModel.getById(departmentId);
+      if (!existingDepartment) {
+        return res.status(404).json({
+          message: 'Phòng ban không tồn tại.'
+        });
+      }
+
+      // Check for employees in department
+      const employees = await DepartmentModel.getEmployeesInDepartment(departmentId);
+      
+      if (employees.length > 0) {
+        // If no transfer department specified, return error with employee list
+        if (!transferToDepartmentId) {
+          return res.status(400).json({
+            message: 'Phòng ban này đang có nhân viên. Vui lòng chuyển họ sang phòng ban khác trước khi xóa.',
+            hasEmployees: true,
+            employees: employees,
+            employeeCount: employees.length
+          });
+        }
+
+        // Validate transfer department exists
+        const transferDepartment = await DepartmentModel.getById(transferToDepartmentId);
+        if (!transferDepartment) {
+          return res.status(404).json({
+            message: 'Phòng ban chuyển đến không tồn tại.'
+          });
+        }
+
+        // Transfer employees
+        await DepartmentModel.transferEmployees(departmentId, transferToDepartmentId);
+      }
+
+      // Check for child departments
+      const childDepartments = await DepartmentModel.getChildDepartments(departmentId);
+      if (childDepartments.length > 0) {
+        return res.status(400).json({
+          message: 'Không thể xóa phòng ban vì có phòng ban con thuộc phòng ban này.',
+          hasChildDepartments: true,
+          childDepartments: childDepartments
+        });
+      }
+
+      // Delete department
+      await DepartmentModel.delete(departmentId);
+
+      return res.status(200).json({
+        message: 'Xóa phòng ban thành công',
+        transferredEmployees: employees.length
+      });
+    } catch (error) {
+      console.error('Delete department error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== WORK SHIFT MANAGEMENT ====================
+
+  /**
+   * Get all work shifts (All roles)
+   */
+  static async getAllWorkShifts(req, res) {
+    try {
+      const workShifts = await WorkShiftModel.getAll();
+
+      return res.status(200).json({
+        message: 'Lấy danh sách ca làm việc thành công',
+        workShifts
+      });
+    } catch (error) {
+      console.error('Get all work shifts error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get work shift by ID (All roles)
+   */
+  static async getWorkShiftById(req, res) {
+    try {
+      const { shiftId } = req.params;
+
+      const workShift = await WorkShiftModel.getById(shiftId);
+
+      if (!workShift) {
+        return res.status(404).json({
+          message: 'Ca làm việc không tồn tại.'
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Lấy thông tin ca làm việc thành công',
+        workShift
+      });
+    } catch (error) {
+      console.error('Get work shift by ID error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get work shifts by department (All roles)
+   */
+  static async getWorkShiftsByDepartment(req, res) {
+    try {
+      const { departmentId } = req.params;
+
+      // Check if department exists
+      const department = await DepartmentModel.getById(departmentId);
+      if (!department) {
+        return res.status(404).json({
+          message: 'Phòng ban không tồn tại.'
+        });
+      }
+
+      const workShifts = await WorkShiftModel.getByDepartment(departmentId);
+
+      return res.status(200).json({
+        message: 'Lấy danh sách ca làm việc theo phòng ban thành công',
+        workShifts
+      });
+    } catch (error) {
+      console.error('Get work shifts by department error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Create work shift (Admin, HR only)
+   */
+  static async createWorkShift(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể tạo ca làm việc.'
+        });
+      }
+
+      const { shiftId, shiftName, startTime, endTime, maxLateTime, departmentId } = req.body;
+
+      if (!shiftId || !shiftName || !startTime || !endTime) {
+        return res.status(400).json({
+          message: 'ID ca làm việc, tên ca, giờ bắt đầu và giờ kết thúc là bắt buộc.'
+        });
+      }
+
+      if (!departmentId) {
+        return res.status(400).json({
+          message: 'Phòng ban là bắt buộc. Mỗi ca làm việc phải được gán cho một phòng ban cụ thể.'
+        });
+      }
+
+      // Check if shift ID already exists
+      const existingShift = await WorkShiftModel.getById(shiftId);
+      if (existingShift) {
+        return res.status(400).json({
+          message: 'ID ca làm việc đã tồn tại.'
+        });
+      }
+
+      // If departmentId provided, check if department exists
+      if (departmentId) {
+        const department = await DepartmentModel.getById(departmentId);
+        if (!department) {
+          return res.status(404).json({
+            message: 'Phòng ban không tồn tại.'
+          });
+        }
+
+        // Check if department already has a work shift
+        const departmentHasShift = await WorkShiftModel.departmentHasShift(departmentId);
+        if (departmentHasShift) {
+          return res.status(400).json({
+            message: 'Phòng ban này đã có ca làm việc được gán. Mỗi phòng ban chỉ được có 1 ca làm việc.'
+          });
+        }
+      }
+
+      const workShift = await WorkShiftModel.create({
+        shiftId,
+        shiftName,
+        startTime,
+        endTime,
+        maxLateTime,
+        departmentId
+      });
+
+      return res.status(201).json({
+        message: 'Tạo ca làm việc thành công',
+        workShift
+      });
+    } catch (error) {
+      console.error('Create work shift error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Update work shift (Admin, HR only)
+   */
+  static async updateWorkShift(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể cập nhật ca làm việc.'
+        });
+      }
+
+      const { shiftId } = req.params;
+      const { shiftName, startTime, endTime, maxLateTime, departmentId } = req.body;
+
+      if (!shiftId) {
+        return res.status(400).json({
+          message: 'ID ca làm việc là bắt buộc.'
+        });
+      }
+
+      if (departmentId !== undefined && !departmentId) {
+        return res.status(400).json({
+          message: 'Phòng ban là bắt buộc. Mỗi ca làm việc phải được gán cho một phòng ban cụ thể.'
+        });
+      }
+
+      // Check if work shift exists
+      const existingShift = await WorkShiftModel.getById(shiftId);
+      if (!existingShift) {
+        return res.status(404).json({
+          message: 'Ca làm việc không tồn tại.'
+        });
+      }
+
+      // If departmentId provided, check if department exists
+      if (departmentId) {
+        const department = await DepartmentModel.getById(departmentId);
+        if (!department) {
+          return res.status(404).json({
+            message: 'Phòng ban không tồn tại.'
+          });
+        }
+
+        // Check if department already has a different work shift
+        const departmentHasShift = await WorkShiftModel.departmentHasShift(departmentId, shiftId);
+        if (departmentHasShift) {
+          return res.status(400).json({
+            message: 'Phòng ban này đã có ca làm việc khác được gán. Mỗi phòng ban chỉ được có 1 ca làm việc.'
+          });
+        }
+      }
+
+      const workShift = await WorkShiftModel.update(shiftId, {
+        shiftName: shiftName || existingShift.shift_name,
+        startTime: startTime || existingShift.start_time,
+        endTime: endTime || existingShift.end_time,
+        maxLateTime: maxLateTime !== undefined ? maxLateTime : existingShift.max_late_time,
+        departmentId: departmentId !== undefined ? departmentId : existingShift.department_id
+      });
+
+      return res.status(200).json({
+        message: 'Cập nhật ca làm việc thành công',
+        workShift
+      });
+    } catch (error) {
+      console.error('Update work shift error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Delete work shift (Admin only)
+   */
+  static async deleteWorkShift(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể xóa ca làm việc.'
+        });
+      }
+
+      const { shiftId } = req.params;
+
+      // Check if work shift exists
+      const existingShift = await WorkShiftModel.getById(shiftId);
+      if (!existingShift) {
+        return res.status(404).json({
+          message: 'Ca làm việc không tồn tại.'
+        });
+      }
+
+      // Check if work shift is being used
+      const isInUse = await WorkShiftModel.isInUse(shiftId);
+      if (isInUse) {
+        return res.status(400).json({
+          message: 'Không thể xóa ca làm việc vì đang được sử dụng trong bảng chấm công.'
+        });
+      }
+
+      await WorkShiftModel.delete(shiftId);
+
+      return res.status(200).json({
+        message: 'Xóa ca làm việc thành công'
+      });
+    } catch (error) {
+      console.error('Delete work shift error:', error);
       return res.status(500).json({
         message: 'Lỗi máy chủ nội bộ.',
         error: error.message

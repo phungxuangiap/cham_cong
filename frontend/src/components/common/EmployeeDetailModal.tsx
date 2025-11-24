@@ -3,6 +3,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import authService from '../../services/authService';
 import { useAppSelector } from '../../app/hooks';
 import CreateContractModal from './CreateContractModal';
+import UpdateContractModal from './UpdateContractModal';
 import { 
   XMarkIcon, 
   UserCircleIcon,
@@ -29,6 +30,7 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
   const [contract, setContract] = useState<any>(null);
   const [loadingContract, setLoadingContract] = useState(false);
   const [showCreateContractModal, setShowCreateContractModal] = useState(false);
+  const [showUpdateContractModal, setShowUpdateContractModal] = useState(false);
 
   const isAdminOrHR = user?.role === 'Admin' || user?.role === 'HR';
 
@@ -54,6 +56,15 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
   const handleCreateContractSuccess = () => {
     fetchContract(); // Refresh contract data
   };
+
+  const handleUpdateContractSuccess = () => {
+    fetchContract(); // Refresh contract data
+  };
+
+  useEffect(() => {
+    console.log('showUpdateContractModal changed:', showUpdateContractModal);
+    console.log('contract data:', contract);
+  }, [showUpdateContractModal, contract]);
 
   if (!employeeData) return null;
 
@@ -355,6 +366,19 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
                       Tạo hợp đồng
                     </button>
                   )}
+                  {isAdminOrHR && contract && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('Update contract button clicked, contract:', contract);
+                        setShowUpdateContractModal(true);
+                      }}
+                      className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors flex items-center gap-2"
+                    >
+                      <PencilIcon className="h-5 w-5" />
+                      Cập nhật hợp đồng
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onEdit}
@@ -377,6 +401,16 @@ const EmployeeDetailModal = ({ isOpen, onClose, onEdit, employeeData }: Employee
           employeeId={employeeData.employee_id}
           employeeName={employeeData.full_name}
         />
+
+        {/* Update Contract Modal */}
+        {contract && (
+          <UpdateContractModal
+            isOpen={showUpdateContractModal}
+            onClose={() => setShowUpdateContractModal(false)}
+            onSuccess={handleUpdateContractSuccess}
+            contractData={contract}
+          />
+        )}
       </Dialog>
     </Transition>
   );

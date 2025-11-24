@@ -75,6 +75,77 @@ const authService = {
     return apiClient.post('/auth/contract', data);
   },
 
+  // Get All Contracts (HR only)
+  getAllContracts: async () => {
+    return apiClient.get('/auth/contracts');
+  },
+
+  // Update User Contract
+  updateUserContract: async (data: any) => {
+    return apiClient.put('/auth/contract', data);
+  },
+
+  // ==================== DEPARTMENT SERVICES ====================
+
+  // Get All Departments
+  getAllDepartments: async () => {
+    return apiClient.get('/auth/departments');
+  },
+
+  // Get Department By ID
+  getDepartmentById: async (departmentId: string) => {
+    return apiClient.get(`/auth/department/${departmentId}`);
+  },
+
+  // Create Department (Admin only)
+  createDepartment: async (data: any) => {
+    return apiClient.post('/auth/department', data);
+  },
+
+  // Update Department (Admin only)
+  updateDepartment: async (departmentId: string, data: any) => {
+    return apiClient.put(`/auth/department/${departmentId}`, data);
+  },
+
+  // Delete Department (Admin only)
+  deleteDepartment: async (departmentId: string, transferToDepartmentId?: string) => {
+    return apiClient.delete(`/auth/department/${departmentId}`, {
+      data: { transferToDepartmentId }
+    });
+  },
+
+  // ==================== WORK SHIFT SERVICES ====================
+
+  // Get All Work Shifts
+  getAllWorkShifts: async () => {
+    return apiClient.get('/auth/work-shifts');
+  },
+
+  // Get Work Shift By ID
+  getWorkShiftById: async (shiftId: string) => {
+    return apiClient.get(`/auth/work-shift/${shiftId}`);
+  },
+
+  // Get Work Shifts By Department
+  getWorkShiftsByDepartment: async (departmentId: string) => {
+    return apiClient.get(`/auth/work-shifts/department/${departmentId}`);
+  },
+
+  // Create Work Shift (Admin/HR only)
+  createWorkShift: async (data: any) => {
+    return apiClient.post('/auth/work-shift', data);
+  },
+
+  // Update Work Shift (Admin/HR only)
+  updateWorkShift: async (shiftId: string, data: any) => {
+    return apiClient.put(`/auth/work-shift/${shiftId}`, data);
+  },
+
+  // Delete Work Shift (Admin only)
+  deleteWorkShift: async (shiftId: string) => {
+    return apiClient.delete(`/auth/work-shift/${shiftId}`);
+  },
+
   // Logout
   logout: async () => {
     return apiClient.post('/auth/logout');

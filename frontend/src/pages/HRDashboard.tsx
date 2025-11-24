@@ -24,6 +24,9 @@ import {
 import CreateEmployeeModal from '../components/common/CreateEmployeeModal';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
 import EmployeeDetailModal from '../components/common/EmployeeDetailModal';
+import UpdateContractModal from '../components/common/UpdateContractModal';
+import CreateWorkShiftModal from '../components/common/CreateWorkShiftModal';
+import UpdateWorkShiftModal from '../components/common/UpdateWorkShiftModal';
 
 const HRDashboard = () => {
   const navigate = useNavigate();
@@ -34,17 +37,41 @@ const HRDashboard = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showUpdateContractModal, setShowUpdateContractModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [selectedContract, setSelectedContract] = useState<any>(null);
   const [employees, setEmployees] = useState<any[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<any[]>([]);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [filteredContracts, setFilteredContracts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [contractsLoading, setContractsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [contractSearchTerm, setContractSearchTerm] = useState('');
   const [displayCount, setDisplayCount] = useState(20);
+  const [contractDisplayCount, setContractDisplayCount] = useState(20);
 
+  // Work Shift states
+  const [workShifts, setWorkShifts] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [workShiftsLoading, setWorkShiftsLoading] = useState(false);
+  const [showCreateWorkShiftModal, setShowCreateWorkShiftModal] = useState(false);
+  const [showUpdateWorkShiftModal, setShowUpdateWorkShiftModal] = useState(false);
+  const [selectedWorkShift, setSelectedWorkShift] = useState<any>(null);
+  const [workShiftSearchTerm, setWorkShiftSearchTerm] = useState('');
+  const [filteredWorkShifts, setFilteredWorkShifts] = useState<any[]>([]);
+  useEffect(()=>{
+    console.log('Selected contract changed: ', selectedContract);
+  }, [selectedContract])  
   useEffect(() => {
     if (activeTab === 'employees') {
       fetchEmployees();
+    } else if (activeTab === 'contracts') {
+      fetchContracts();
+    } else if (activeTab === 'work-shifts') {
+      fetchWorkShifts();
+      fetchDepartments();
     }
   }, [activeTab]);
 
@@ -52,6 +79,15 @@ const HRDashboard = () => {
     filterEmployees();
     setDisplayCount(20); // Reset display count when filters change
   }, [employees, searchTerm, roleFilter]);
+
+  useEffect(() => {
+    filterContracts();
+    setContractDisplayCount(20);
+  }, [contracts, contractSearchTerm]);
+
+  useEffect(() => {
+    filterWorkShifts();
+  }, [workShifts, workShiftSearchTerm]);
 
   const fetchEmployees = async () => {
     setLoading(true);
@@ -65,8 +101,79 @@ const HRDashboard = () => {
     }
   };
 
+  const fetchContracts = async () => {
+    setContractsLoading(true);
+    try {
+      const response = await authService.getAllContracts();
+      setContracts(response.data.contracts);
+    } catch (error) {
+      console.error('Error fetching contracts:', error);
+    } finally {
+      setContractsLoading(false);
+    }
+  };
+
+  const fetchWorkShifts = async () => {
+    setWorkShiftsLoading(true);
+    try {
+      const response = await authService.getAllWorkShifts();
+      setWorkShifts(response.data.workShifts);
+    } catch (error) {
+      console.error('Error fetching work shifts:', error);
+    } finally {
+      setWorkShiftsLoading(false);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await authService.getAllDepartments();
+      setDepartments(response.data.departments);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
+  };
+
+  const filterWorkShifts = () => {
+    if (!workShiftSearchTerm) {
+      setFilteredWorkShifts(workShifts);
+      return;
+    }
+
+    const searchLower = workShiftSearchTerm.toLowerCase();
+    const filtered = workShifts.filter((shift) => {
+      const shiftId = shift.shift_id?.toLowerCase() || '';
+      const shiftName = shift.shift_name?.toLowerCase() || '';
+      const departmentId = shift.department_id?.toLowerCase() || '';
+
+      return (
+        shiftId.includes(searchLower) ||
+        shiftName.includes(searchLower) ||
+        departmentId.includes(searchLower)
+      );
+    });
+
+    setFilteredWorkShifts(filtered);
+  };
+
+  const handleDeleteWorkShift = async (shiftId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa ca làm việc này?')) return;
+    
+    try {
+      await authService.deleteWorkShift(shiftId);
+      alert('Xóa ca làm việc thành công!');
+      fetchWorkShifts();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi xóa ca làm việc');
+    }
+  };
+
   const loadMore = () => {
     setDisplayCount(prev => prev + 20);
+  };
+
+  const loadMoreContracts = () => {
+    setContractDisplayCount(prev => prev + 20);
   };
 
   const filterEmployees = () => {
@@ -89,12 +196,54 @@ const HRDashboard = () => {
     setFilteredEmployees(filtered);
   };
 
+  const filterContracts = () => {
+    let filtered = contracts;
+
+    if (contractSearchTerm) {
+      filtered = filtered.filter(contract =>
+        contract.full_name?.toLowerCase().includes(contractSearchTerm.toLowerCase()) ||
+        contract.employee_id?.toLowerCase().includes(contractSearchTerm.toLowerCase()) ||
+        contract.contract_type?.toLowerCase().includes(contractSearchTerm.toLowerCase())
+      );
+    }
+
+    setFilteredContracts(filtered);
+  };
+
+  const isContractExpiringSoon = (endDate: string | null) => {
+    if (!endDate) return false;
+    const today = new Date();
+    const contractEndDate = new Date(endDate);
+    const daysUntilExpiry = Math.ceil((contractEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
+  };
+
+  const getDaysUntilExpiry = (endDate: string | null) => {
+    if (!endDate) return null;
+    const today = new Date();
+    const contractEndDate = new Date(endDate);
+    const daysUntilExpiry = Math.ceil((contractEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntilExpiry;
+  };
+
   const displayedEmployees = filteredEmployees.slice(0, displayCount);
   const hasMore = displayCount < filteredEmployees.length;
+
+  const displayedContracts = filteredContracts.slice(0, contractDisplayCount);
+  const hasMoreContracts = contractDisplayCount < filteredContracts.length;
 
   const handleViewEmployee = (employee: any) => {
     setSelectedEmployee(employee);
     setShowDetailModal(true);
+  };
+
+  const handleUpdateContract = (contract: any) => {
+    setSelectedContract(contract);
+    setShowUpdateContractModal(true);
+  };
+
+  const handleUpdateContractSuccess = () => {
+    fetchContracts(); // Refresh contracts list
   };
 
   const handleEditFromDetail = () => {
@@ -114,8 +263,9 @@ const HRDashboard = () => {
   const menuItems = [
     { id: 'home', name: 'Tổng quan', icon: HomeIcon },
     { id: 'employees', name: 'Quản lý nhân viên', icon: UserGroupIcon },
-    { id: 'requests', name: 'Yêu cầu chờ duyệt', icon: DocumentTextIcon },
     { id: 'contracts', name: 'Quản lý hợp đồng', icon: DocumentTextIcon },
+    { id: 'work-shifts', name: 'Quản lý ca làm việc', icon: ClockIcon },
+    { id: 'requests', name: 'Yêu cầu chờ duyệt', icon: DocumentTextIcon },
     { id: 'leave', name: 'Lịch nghỉ phép', icon: CalendarIcon },
     { id: 'attendance', name: 'Chấm công', icon: ClockIcon },
   ];
@@ -511,16 +661,278 @@ const HRDashboard = () => {
             </div>
           )}
 
-          {activeTab === 'requests' && (
-            <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Danh sách yêu cầu chờ duyệt</h3>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+
+          {activeTab === 'contracts' && (
+            <div className="space-y-6">
+              {/* Search Bar */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4">
+                  {/* Search Input */}
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm theo tên nhân viên, ID, hoặc loại hợp đồng..."
+                      value={contractSearchTerm}
+                      onChange={(e) => setContractSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Results Count */}
+                <div className="mt-4 text-sm text-gray-600">
+                  Hiển thị <span className="font-semibold">{filteredContracts.length}</span> / <span className="font-semibold">{contracts.length}</span> hợp đồng
+                </div>
+              </div>
+
+              {/* Contract List */}
+              <div className="card flex flex-col" style={{ height: 'calc(100vh - 280px)' }}>
+                {contractsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+                  </div>
+                ) : filteredContracts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <DocumentTextIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không tìm thấy hợp đồng nào</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                      {displayedContracts.map((contract, index) => {
+                        const isExpiringSoon = isContractExpiringSoon(contract.end_date);
+                        const daysUntilExpiry = getDaysUntilExpiry(contract.end_date);
+                        
+                        return (
+                          <div
+                            key={`${contract.employee_id}-${contract.signing_date}-${index}`}
+                            className={`flex items-center justify-between p-4 border rounded-lg transition-all duration-200 ${
+                              isExpiringSoon
+                                ? 'bg-red-50 border-red-300 hover:shadow-md hover:border-red-400'
+                                : 'bg-white border-gray-200 hover:shadow-md hover:border-green-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-4 flex-1">
+                              {/* Avatar */}
+                              <div className={`h-14 w-14 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                isExpiringSoon ? 'bg-red-100' : 'bg-green-100'
+                              }`}>
+                                <span className={`font-bold text-lg ${
+                                  isExpiringSoon ? 'text-red-600' : 'text-green-600'
+                                }`}>
+                                  {contract.full_name?.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+
+                              {/* Main Info */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="text-base font-semibold text-gray-900 truncate">
+                                    {contract.full_name}
+                                  </h3>
+                                  {isExpiringSoon && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 animate-pulse">
+                                      ⚠️ Sắp hết hạn
+                                    </span>
+                                  )}
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    contract.employee_status === 'Active'
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}>
+                                    {contract.employee_status === 'Active' ? 'Active' : 'Inactive'}
+                                  </span>
+                                </div>
+                                
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
+                                  <span className="flex items-center gap-1">
+                                    <IdentificationIcon className="h-4 w-4" />
+                                    {contract.employee_id}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <DocumentTextIcon className="h-4 w-4" />
+                                    {contract.contract_type || 'N/A'}
+                                  </span>
+                                  {contract.position_id && (
+                                    <span className="flex items-center gap-1">
+                                      <BriefcaseIcon className="h-4 w-4" />
+                                      {contract.position_id}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex gap-4 mt-1 text-xs text-gray-600">
+                                  <span>
+                                    Bắt đầu: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('vi-VN') : 'N/A'}
+                                  </span>
+                                  <span>
+                                    Kết thúc: {contract.end_date ? new Date(contract.end_date).toLocaleDateString('vi-VN') : 'Không xác định'}
+                                  </span>
+                                  {isExpiringSoon && daysUntilExpiry !== null && (
+                                    <span className="font-semibold text-red-600">
+                                      Còn {daysUntilExpiry} ngày
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Update Button */}
+                            <button
+                              onClick={() => handleUpdateContract(contract)}
+                              className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 flex-shrink-0 ml-4 ${
+                                isExpiringSoon
+                                  ? 'bg-red-600 text-white hover:bg-red-700'
+                                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                              }`}
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                              Cập nhật
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Load More Button */}
+                    {hasMoreContracts && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 text-center flex-shrink-0">
+                        <button
+                          onClick={loadMoreContracts}
+                          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+                        >
+                          Xem thêm ({filteredContracts.length - contractDisplayCount} còn lại)
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
 
-          {activeTab === 'contracts' && (
+          {activeTab === 'work-shifts' && (
+            <div className="space-y-6">
+              {/* Header with Search and Add Button */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4">
+                  {/* Search Input */}
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm ca làm việc theo tên hoặc ID..."
+                      value={workShiftSearchTerm}
+                      onChange={(e) => setWorkShiftSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Add Work Shift Button */}
+                  <button
+                    onClick={() => setShowCreateWorkShiftModal(true)}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <ClockIcon className="h-5 w-5" />
+                    Thêm ca làm việc
+                  </button>
+                </div>
+
+                {/* Results Count */}
+                <div className="mt-4 text-sm text-gray-600">
+                  Hiển thị <span className="font-semibold">{filteredWorkShifts.length}</span> / <span className="font-semibold">{workShifts.length}</span> ca làm việc
+                </div>
+              </div>
+
+              {/* Work Shifts List */}
+              <div className="card">
+                {workShiftsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : filteredWorkShifts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ClockIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không tìm thấy ca làm việc nào</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredWorkShifts.map((shift) => {
+                      const department = departments.find(d => d.department_id === shift.department_id);
+                      return (
+                        <div
+                          key={shift.shift_id}
+                          className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-indigo-300 transition-all duration-200"
+                        >
+                          <div className="flex items-center gap-4 flex-1">
+                            {/* Icon */}
+                            <div className="h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <ClockIcon className="h-7 w-7 text-blue-600" />
+                            </div>
+
+                            {/* Shift Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="text-base font-semibold text-gray-900 truncate">
+                                  {shift.shift_name}
+                                </h3>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {shift.shift_id}
+                                </span>
+                                {shift.department_id && department && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                                    {department.department_name}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex gap-4 text-sm text-gray-600">
+                                <span>
+                                  <span className="font-medium">Bắt đầu:</span> {shift.start_time}
+                                </span>
+                                <span>
+                                  <span className="font-medium">Kết thúc:</span> {shift.end_time}
+                                </span>
+                                {shift.max_late_time && (
+                                  <span>
+                                    <span className="font-medium">Đi muộn tối đa:</span> {shift.max_late_time}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex gap-2 ml-4">
+                            <button
+                              onClick={() => {
+                                setSelectedWorkShift(shift);
+                                setShowUpdateWorkShiftModal(true);
+                              }}
+                              className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 font-medium transition-colors flex items-center gap-2"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => handleDeleteWorkShift(shift.shift_id)}
+                              className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors"
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'requests' && (
             <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Quản lý hợp đồng</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Danh sách yêu cầu chờ duyệt</h3>
               <p className="text-gray-500">Chức năng đang phát triển...</p>
             </div>
           )}
@@ -574,6 +986,48 @@ const HRDashboard = () => {
         onSuccess={handleUpdateSuccess}
         employeeData={selectedEmployee}
       />
+
+      {/* Update Contract Modal */}
+      {selectedContract && (
+        <UpdateContractModal
+          isOpen={showUpdateContractModal}
+          onClose={() => {
+            setShowUpdateContractModal(false);
+            setSelectedContract(null);
+          }}
+          onSuccess={handleUpdateContractSuccess}
+          contractData={selectedContract}
+        />
+      )}
+
+      {/* Create Work Shift Modal */}
+      <CreateWorkShiftModal
+        isOpen={showCreateWorkShiftModal}
+        onClose={() => setShowCreateWorkShiftModal(false)}
+        onSuccess={() => {
+          setShowCreateWorkShiftModal(false);
+          fetchWorkShifts();
+        }}
+        allDepartments={departments}
+      />
+
+      {/* Update Work Shift Modal */}
+      {selectedWorkShift && (
+        <UpdateWorkShiftModal
+          isOpen={showUpdateWorkShiftModal}
+          onClose={() => {
+            setShowUpdateWorkShiftModal(false);
+            setSelectedWorkShift(null);
+          }}
+          onSuccess={() => {
+            setShowUpdateWorkShiftModal(false);
+            setSelectedWorkShift(null);
+            fetchWorkShifts();
+          }}
+          workShiftData={selectedWorkShift}
+          allDepartments={departments}
+        />
+      )}
     </div>
   );
 };

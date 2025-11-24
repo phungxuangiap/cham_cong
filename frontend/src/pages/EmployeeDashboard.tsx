@@ -100,8 +100,6 @@ const EmployeeDashboard = () => {
     { id: 'attendance', name: 'Chấm công', icon: ClockIcon },
     { id: 'leave', name: 'Nghỉ phép', icon: CalendarDaysIcon },
     { id: 'overtime', name: 'Làm thêm giờ', icon: BriefcaseIcon },
-    { id: 'payroll', name: 'Bảng lương', icon: DocumentTextIcon },
-    { id: 'reports', name: 'Báo cáo', icon: ChartBarIcon },
   ];
 
   return (

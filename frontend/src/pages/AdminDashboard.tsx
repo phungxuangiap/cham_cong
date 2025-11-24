@@ -19,11 +19,21 @@ import {
   IdentificationIcon,
   PhoneIcon,
   EnvelopeIcon,
-  BriefcaseIcon
+  BriefcaseIcon,
+  ListBulletIcon,
+  RectangleStackIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import CreateEmployeeModal from '../components/common/CreateEmployeeModal';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
 import EmployeeDetailModal from '../components/common/EmployeeDetailModal';
+import CreateDepartmentModal from '../components/common/CreateDepartmentModal';
+import UpdateDepartmentModal from '../components/common/UpdateDepartmentModal';
+import TransferEmployeesModal from '../components/common/TransferEmployeesModal';
+import DepartmentTreeView from '../components/common/DepartmentTreeView';
+import DepartmentDetailModal from '../components/common/DepartmentDetailModal';
+import CreateWorkShiftModal from '../components/common/CreateWorkShiftModal';
+import UpdateWorkShiftModal from '../components/common/UpdateWorkShiftModal';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -42,9 +52,36 @@ const AdminDashboard = () => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [displayCount, setDisplayCount] = useState(20);
 
+  // Department states
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [showCreateDepartmentModal, setShowCreateDepartmentModal] = useState(false);
+  const [showUpdateDepartmentModal, setShowUpdateDepartmentModal] = useState(false);
+  const [selectedDepartment, setSelectedDepartment] = useState<any>(null);
+  const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
+  const [filteredDepartments, setFilteredDepartments] = useState<any[]>([]);
+  const [showTransferEmployeesModal, setShowTransferEmployeesModal] = useState(false);
+  const [departmentToDelete, setDepartmentToDelete] = useState<any>(null);
+  const [employeesInDepartment, setEmployeesInDepartment] = useState<any[]>([]);
+  const [departmentViewMode, setDepartmentViewMode] = useState<'tree' | 'list'>('tree');
+  const [showDepartmentDetailModal, setShowDepartmentDetailModal] = useState(false);
+
+  // Work Shift states
+  const [workShifts, setWorkShifts] = useState<any[]>([]);
+  const [workShiftsLoading, setWorkShiftsLoading] = useState(false);
+  const [showCreateWorkShiftModal, setShowCreateWorkShiftModal] = useState(false);
+  const [showUpdateWorkShiftModal, setShowUpdateWorkShiftModal] = useState(false);
+  const [selectedWorkShift, setSelectedWorkShift] = useState<any>(null);
+  const [workShiftSearchTerm, setWorkShiftSearchTerm] = useState('');
+  const [filteredWorkShifts, setFilteredWorkShifts] = useState<any[]>([]);
+
   useEffect(() => {
     if (activeTab === 'employees') {
       fetchEmployees();
+    } else if (activeTab === 'departments') {
+      fetchDepartments();
+    } else if (activeTab === 'work-shifts') {
+      fetchWorkShifts();
     }
   }, [activeTab]);
 
@@ -52,6 +89,14 @@ const AdminDashboard = () => {
     filterEmployees();
     setDisplayCount(20); // Reset display count when filters change
   }, [employees, searchTerm, roleFilter]);
+
+  useEffect(() => {
+    filterDepartments();
+  }, [departments, departmentSearchTerm]);
+
+  useEffect(() => {
+    filterWorkShifts();
+  }, [workShifts, workShiftSearchTerm]);
 
   const fetchEmployees = async () => {
     setLoading(true);
@@ -62,6 +107,102 @@ const AdminDashboard = () => {
       console.error('Error fetching employees:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    setDepartmentsLoading(true);
+    try {
+      const response = await authService.getAllDepartments();
+      setDepartments(response.data.departments);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
+
+  const fetchWorkShifts = async () => {
+    setWorkShiftsLoading(true);
+    try {
+      const response = await authService.getAllWorkShifts();
+      setWorkShifts(response.data.workShifts);
+    } catch (error) {
+      console.error('Error fetching work shifts:', error);
+    } finally {
+      setWorkShiftsLoading(false);
+    }
+  };
+
+  const filterWorkShifts = () => {
+    if (!workShiftSearchTerm) {
+      setFilteredWorkShifts(workShifts);
+      return;
+    }
+
+    const searchLower = workShiftSearchTerm.toLowerCase();
+    const filtered = workShifts.filter((shift) => {
+      const shiftId = shift.shift_id?.toLowerCase() || '';
+      const shiftName = shift.shift_name?.toLowerCase() || '';
+      const departmentId = shift.department_id?.toLowerCase() || '';
+
+      return (
+        shiftId.includes(searchLower) ||
+        shiftName.includes(searchLower) ||
+        departmentId.includes(searchLower)
+      );
+    });
+
+    setFilteredWorkShifts(filtered);
+  };
+
+  const handleDeleteWorkShift = async (shiftId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa ca làm việc này?')) return;
+    
+    try {
+      await authService.deleteWorkShift(shiftId);
+      alert('Xóa ca làm việc thành công!');
+      fetchWorkShifts();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi xóa ca làm việc');
+    }
+  };
+
+  const handleDeleteDepartment = async (departmentId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa phòng ban này?')) return;
+    
+    try {
+      await authService.deleteDepartment(departmentId);
+      alert('Xóa phòng ban thành công!');
+      fetchDepartments();
+    } catch (error: any) {
+      const errorData = error.response?.data;
+      
+      // Check if department has employees
+      if (errorData?.hasEmployees && errorData?.employees) {
+        setDepartmentToDelete(departments.find(d => d.department_id === departmentId));
+        setEmployeesInDepartment(errorData.employees);
+        setShowTransferEmployeesModal(true);
+      } else if (errorData?.hasChildDepartments) {
+        alert('Không thể xóa phòng ban vì có phòng ban con thuộc phòng ban này.');
+      } else {
+        alert(errorData?.message || 'Có lỗi xảy ra khi xóa phòng ban');
+      }
+    }
+  };
+
+  const handleConfirmTransfer = async (targetDepartmentId: string) => {
+    if (!departmentToDelete) return;
+
+    try {
+      await authService.deleteDepartment(departmentToDelete.department_id, targetDepartmentId);
+      alert('Đã chuyển nhân viên và xóa phòng ban thành công!');
+      setShowTransferEmployeesModal(false);
+      setDepartmentToDelete(null);
+      setEmployeesInDepartment([]);
+      fetchDepartments();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra');
     }
   };
 
@@ -89,6 +230,19 @@ const AdminDashboard = () => {
     setFilteredEmployees(filtered);
   };
 
+  const filterDepartments = () => {
+    let filtered = departments;
+
+    if (departmentSearchTerm) {
+      filtered = filtered.filter(dept =>
+        dept.department_name?.toLowerCase().includes(departmentSearchTerm.toLowerCase()) ||
+        dept.department_id?.toLowerCase().includes(departmentSearchTerm.toLowerCase())
+      );
+    }
+
+    setFilteredDepartments(filtered);
+  };
+
   const displayedEmployees = filteredEmployees.slice(0, displayCount);
   const hasMore = displayCount < filteredEmployees.length;
 
@@ -114,8 +268,9 @@ const AdminDashboard = () => {
   const menuItems = [
     { id: 'home', name: 'Tổng quan', icon: HomeIcon },
     { id: 'employees', name: 'Quản lý nhân viên', icon: UserGroupIcon },
+    { id: 'departments', name: 'Quản lý phòng ban', icon: BriefcaseIcon },
+    { id: 'work-shifts', name: 'Quản lý ca làm việc', icon: ClockIcon },
     { id: 'attendance', name: 'Quản lý chấm công', icon: ClipboardDocumentListIcon },
-    { id: 'reports', name: 'Báo cáo', icon: ChartBarIcon },
     { id: 'settings', name: 'Cài đặt', icon: CogIcon },
   ];
 
@@ -481,6 +636,273 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {activeTab === 'departments' && (
+            <div className="space-y-6">
+              {/* Header with Search and Add Button */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4">
+                  {/* Search Input */}
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm phòng ban theo tên hoặc ID..."
+                      value={departmentSearchTerm}
+                      onChange={(e) => setDepartmentSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+                    <button
+                      onClick={() => setDepartmentViewMode('tree')}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all ${
+                        departmentViewMode === 'tree'
+                          ? 'bg-white text-purple-600 shadow-sm font-medium'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <RectangleStackIcon className="h-5 w-5" />
+                      Sơ đồ
+                    </button>
+                    <button
+                      onClick={() => setDepartmentViewMode('list')}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all ${
+                        departmentViewMode === 'list'
+                          ? 'bg-white text-purple-600 shadow-sm font-medium'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <ListBulletIcon className="h-5 w-5" />
+                      Danh sách
+                    </button>
+                  </div>
+
+                  {/* Add Department Button */}
+                  <button
+                    onClick={() => setShowCreateDepartmentModal(true)}
+                    className="btn btn-primary flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <BriefcaseIcon className="h-5 w-5" />
+                    Thêm phòng ban
+                  </button>
+                </div>
+
+                {/* Results Count */}
+                <div className="mt-4 text-sm text-gray-600">
+                  Hiển thị <span className="font-semibold">{filteredDepartments.length}</span> / <span className="font-semibold">{departments.length}</span> phòng ban
+                </div>
+              </div>
+
+              {/* Departments View */}
+              <div className="card">
+                {departmentsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                  </div>
+                ) : departmentViewMode === 'tree' ? (
+                  <DepartmentTreeView
+                    departments={departmentSearchTerm ? filteredDepartments : departments}
+                    onEdit={(department) => {
+                      setSelectedDepartment(department);
+                      setShowUpdateDepartmentModal(true);
+                    }}
+                    onDelete={handleDeleteDepartment}
+                    onViewDetail={(department) => {
+                      setSelectedDepartment(department);
+                      setShowDepartmentDetailModal(true);
+                    }}
+                  />
+                ) : filteredDepartments.length === 0 ? (
+                  <div className="text-center py-12">
+                    <BriefcaseIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không tìm thấy phòng ban nào</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredDepartments.map((department) => (
+                      <div
+                        key={department.department_id}
+                        className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-purple-300 transition-all duration-200"
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          {/* Icon */}
+                          <div className="h-14 w-14 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                            <BriefcaseIcon className="h-7 w-7 text-purple-600" />
+                          </div>
+
+                          {/* Department Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="text-base font-semibold text-gray-900 truncate">
+                                {department.department_name}
+                              </h3>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                {department.department_id}
+                              </span>
+                              {department.parent_department_id && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  Con của: {department.parent_department_id}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {department.description || 'Không có mô tả'}
+                            </div>
+                            {department.manager_id && (
+                              <div className="text-xs text-gray-600 mt-1">
+                                Quản lý: {department.manager_id}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 ml-4">
+                          <button
+                            onClick={() => {
+                              setSelectedDepartment(department);
+                              setShowUpdateDepartmentModal(true);
+                            }}
+                            className="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 font-medium transition-colors flex items-center gap-2"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                            Sửa
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDepartment(department.department_id)}
+                            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors"
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'work-shifts' && (
+            <div className="space-y-6">
+              {/* Header with Search and Add Button */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4">
+                  {/* Search Input */}
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm ca làm việc theo tên hoặc ID..."
+                      value={workShiftSearchTerm}
+                      onChange={(e) => setWorkShiftSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Add Work Shift Button */}
+                  <button
+                    onClick={() => setShowCreateWorkShiftModal(true)}
+                    className="btn btn-primary flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <ClockIcon className="h-5 w-5" />
+                    Thêm ca làm việc
+                  </button>
+                </div>
+
+                {/* Results Count */}
+                <div className="mt-4 text-sm text-gray-600">
+                  Hiển thị <span className="font-semibold">{filteredWorkShifts.length}</span> / <span className="font-semibold">{workShifts.length}</span> ca làm việc
+                </div>
+              </div>
+
+              {/* Work Shifts List */}
+              <div className="card">
+                {workShiftsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                  </div>
+                ) : filteredWorkShifts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ClockIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không tìm thấy ca làm việc nào</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredWorkShifts.map((shift) => {
+                      const department = departments.find(d => d.department_id === shift.department_id);
+                      return (
+                        <div
+                          key={shift.shift_id}
+                          className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md hover:border-purple-300 transition-all duration-200"
+                        >
+                          <div className="flex items-center gap-4 flex-1">
+                            {/* Icon */}
+                            <div className="h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <ClockIcon className="h-7 w-7 text-blue-600" />
+                            </div>
+
+                            {/* Shift Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="text-base font-semibold text-gray-900 truncate">
+                                  {shift.shift_name}
+                                </h3>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {shift.shift_id}
+                                </span>
+                                {shift.department_id && department && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    {department.department_name}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex gap-4 text-sm text-gray-600">
+                                <span>
+                                  <span className="font-medium">Bắt đầu:</span> {shift.start_time}
+                                </span>
+                                <span>
+                                  <span className="font-medium">Kết thúc:</span> {shift.end_time}
+                                </span>
+                                {shift.max_late_time && (
+                                  <span>
+                                    <span className="font-medium">Đi muộn tối đa:</span> {shift.max_late_time}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex gap-2 ml-4">
+                            <button
+                              onClick={() => {
+                                setSelectedWorkShift(shift);
+                                setShowUpdateWorkShiftModal(true);
+                              }}
+                              className="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 font-medium transition-colors flex items-center gap-2"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => handleDeleteWorkShift(shift.shift_id)}
+                              className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors"
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'attendance' && (
             <div className="card">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Quản lý chấm công</h3>
@@ -537,6 +959,89 @@ const AdminDashboard = () => {
         onSuccess={handleUpdateSuccess}
         employeeData={selectedEmployee}
       />
+
+      {/* Create Department Modal */}
+      <CreateDepartmentModal
+        isOpen={showCreateDepartmentModal}
+        onClose={() => setShowCreateDepartmentModal(false)}
+        onSuccess={() => {
+          fetchDepartments();
+        }}
+        allDepartments={departments}
+      />
+
+      {/* Update Department Modal */}
+      {selectedDepartment && (
+        <UpdateDepartmentModal
+          isOpen={showUpdateDepartmentModal}
+          onClose={() => {
+            setShowUpdateDepartmentModal(false);
+            setSelectedDepartment(null);
+          }}
+          onSuccess={() => {
+            fetchDepartments();
+          }}
+          departmentData={selectedDepartment}
+          allDepartments={departments}
+        />
+      )}
+
+      {/* Transfer Employees Modal */}
+      {departmentToDelete && (
+        <TransferEmployeesModal
+          isOpen={showTransferEmployeesModal}
+          onClose={() => {
+            setShowTransferEmployeesModal(false);
+            setDepartmentToDelete(null);
+            setEmployeesInDepartment([]);
+          }}
+          onConfirm={handleConfirmTransfer}
+          departmentData={departmentToDelete}
+          employees={employeesInDepartment}
+          allDepartments={departments}
+        />
+      )}
+
+      {/* Department Detail Modal */}
+      <DepartmentDetailModal
+        isOpen={showDepartmentDetailModal}
+        onClose={() => {
+          setShowDepartmentDetailModal(false);
+          setSelectedDepartment(null);
+        }}
+        onEdit={(department) => {
+          setSelectedDepartment(department);
+          setShowUpdateDepartmentModal(true);
+        }}
+        departmentData={selectedDepartment}
+        allDepartments={departments}
+      />
+
+      {/* Create Work Shift Modal */}
+      <CreateWorkShiftModal
+        isOpen={showCreateWorkShiftModal}
+        onClose={() => setShowCreateWorkShiftModal(false)}
+        onSuccess={() => {
+          fetchWorkShifts();
+        }}
+        allDepartments={departments}
+      />
+
+      {/* Update Work Shift Modal */}
+      {selectedWorkShift && (
+        <UpdateWorkShiftModal
+          isOpen={showUpdateWorkShiftModal}
+          onClose={() => {
+            setShowUpdateWorkShiftModal(false);
+            setSelectedWorkShift(null);
+          }}
+          onSuccess={() => {
+            fetchWorkShifts();
+          }}
+          workShiftData={selectedWorkShift}
+          allDepartments={departments}
+        />
+      )}
     </div>
   );
 };
