@@ -190,6 +190,60 @@ router.get('/attendance/today-status',
   AuthController.getTodayAttendanceStatus
 );
 
+// ==================== LEAVE REQUEST ROUTES ====================
+
+// Create leave request - all authenticated users
+router.post('/leave-request',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.createLeaveRequest
+);
+
+// Get my leave requests - all authenticated users
+router.get('/my-leave-requests',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getMyLeaveRequests
+);
+
+// Get my leave statistics - all authenticated users
+router.get('/my-leave-stats',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getMyLeaveStats
+);
+
+// Delete my leave request - all authenticated users
+router.delete('/leave-request',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.deleteMyLeaveRequest
+);
+
+// Get all pending leave requests - HR/Admin only
+router.get('/leave-requests/pending',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.getPendingLeaveRequests
+);
+
+// Get all leave requests with filters - HR/Admin only
+router.get('/leave-requests',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.getAllLeaveRequests
+);
+
+// Approve leave request - HR/Admin only
+router.put('/leave-request/approve',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.approveLeaveRequest
+);
+
+// Reject leave request - HR/Admin only
+router.put('/leave-request/reject',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.rejectLeaveRequest
+);
+
 // Legacy route
 router.post('/register', AuthController.register);
 

@@ -22,12 +22,16 @@ import {
   BriefcaseIcon,
   ListBulletIcon,
   RectangleStackIcon,
-  ClockIcon
+  ClockIcon,
+  DocumentTextIcon,
+  CheckCircleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline';
 import CreateEmployeeModal from '../components/common/CreateEmployeeModal';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
 import EmployeeDetailModal from '../components/common/EmployeeDetailModal';
 import CreateDepartmentModal from '../components/common/CreateDepartmentModal';
+import RejectLeaveModal from '../components/common/RejectLeaveModal';
 import UpdateDepartmentModal from '../components/common/UpdateDepartmentModal';
 import TransferEmployeesModal from '../components/common/TransferEmployeesModal';
 import DepartmentTreeView from '../components/common/DepartmentTreeView';
@@ -75,6 +79,13 @@ const AdminDashboard = () => {
   const [workShiftSearchTerm, setWorkShiftSearchTerm] = useState('');
   const [filteredWorkShifts, setFilteredWorkShifts] = useState<any[]>([]);
 
+  // Leave Request states
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState<any[]>([]);
+  const [leaveRequestsLoading, setLeaveRequestsLoading] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [selectedLeaveRequest, setSelectedLeaveRequest] = useState<any>(null);
+
+
   useEffect(() => {
     if (activeTab === 'employees') {
       fetchEmployees();
@@ -82,6 +93,8 @@ const AdminDashboard = () => {
       fetchDepartments();
     } else if (activeTab === 'work-shifts') {
       fetchWorkShifts();
+    } else if (activeTab === 'requests') {
+      fetchPendingLeaveRequests();
     }
   }, [activeTab]);
 
@@ -272,6 +285,50 @@ const AdminDashboard = () => {
     await fetchEmployees();
   };
 
+  const fetchPendingLeaveRequests = async () => {
+    setLeaveRequestsLoading(true);
+    try {
+      const response = await authService.getPendingLeaveRequests();
+      setPendingLeaveRequests(response.data.leaveRequests);
+    } catch (error) {
+      console.error('Error fetching pending leave requests:', error);
+    } finally {
+      setLeaveRequestsLoading(false);
+    }
+  };
+
+  const handleApproveLeaveRequest = async (employeeId: string, createdDate: string) => {
+    if (!confirm('Bạn có chắc chắn muốn duyệt yêu cầu nghỉ phép này?')) return;
+    
+    try {
+      await authService.approveLeaveRequest(employeeId, createdDate);
+      alert('✅ Đã duyệt yêu cầu nghỉ phép!');
+      await fetchPendingLeaveRequests();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi duyệt yêu cầu');
+    }
+  };
+
+  const handleRejectLeaveRequest = (request: any) => {
+    setSelectedLeaveRequest(request);
+    setShowRejectModal(true);
+  };
+
+  const handleRejectSuccess = async () => {
+    await fetchPendingLeaveRequests();
+  };
+
+  const getLeaveTypeLabel = (type: string) => {
+    const types: any = {
+      annual: 'Nghỉ phép năm',
+      sick: 'Nghỉ ốm',
+      personal: 'Nghỉ cá nhân',
+      unpaid: 'Nghỉ không lương',
+      other: 'Khác'
+    };
+    return types[type] || type;
+  };
+
   const handleLogout = () => {
     dispatch(logout());
     navigate('/login');
@@ -282,7 +339,7 @@ const AdminDashboard = () => {
     { id: 'employees', name: 'Quản lý nhân viên', icon: UserGroupIcon },
     { id: 'departments', name: 'Quản lý phòng ban', icon: BriefcaseIcon },
     { id: 'work-shifts', name: 'Quản lý ca làm việc', icon: ClockIcon },
-    { id: 'attendance', name: 'Quản lý chấm công', icon: ClipboardDocumentListIcon },
+    { id: 'requests', name: 'Yêu cầu chờ duyệt', icon: DocumentTextIcon },
     { id: 'settings', name: 'Cài đặt', icon: CogIcon },
   ];
 
@@ -955,6 +1012,120 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {activeTab === 'requests' && (
+            <div className="card">
+              <h3 className="text-xl font-bold text-gray-900 mb-6">Danh sách yêu cầu chờ duyệt</h3>
+              
+              {leaveRequestsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                </div>
+              ) : pendingLeaveRequests.length === 0 ? (
+                <div className="text-center py-12">
+                  <DocumentTextIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">Không có yêu cầu chờ duyệt</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Nhân viên
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Phòng ban
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Loại nghỉ phép
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Thời gian
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Số ngày
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Lý do
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Ngày tạo
+                        </th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Hành động
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {pendingLeaveRequests.map((request) => (
+                        <tr key={request.request_id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                <UserCircleIcon className="h-6 w-6 text-blue-600" />
+                              </div>
+                              <div className="ml-3">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {request.full_name}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {request.employee_id}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {request.department_name || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {getLeaveTypeLabel(request.leave_type)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div>
+                              {new Date(request.start_date).toLocaleDateString('vi-VN')}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              đến {new Date(request.end_date).toLocaleDateString('vi-VN')}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span className="font-medium text-blue-600">{request.total_days}</span> ngày
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-500 max-w-xs">
+                            <div className="truncate" title={request.reason || '-'}>
+                              {request.reason || '-'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {new Date(request.created_at).toLocaleDateString('vi-VN')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleApproveLeaveRequest(request.employee_id, request.created_date)}
+                                className="text-green-600 hover:text-green-800 p-2 rounded-lg hover:bg-green-50"
+                                title="Duyệt"
+                              >
+                                <CheckCircleIcon className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => handleRejectLeaveRequest(request)}
+                                className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50"
+                                title="Từ chối"
+                              >
+                                <XCircleIcon className="h-5 w-5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'settings' && (
             <div className="card">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Cài đặt hệ thống</h3>
@@ -1078,6 +1249,25 @@ const AdminDashboard = () => {
           }}
           workShiftData={selectedWorkShift}
           allDepartments={departments}
+        />
+      )}
+
+      {/* Reject Leave Request Modal */}
+      {selectedLeaveRequest && (
+        <RejectLeaveModal
+          isOpen={showRejectModal}
+          onClose={() => {
+            setShowRejectModal(false);
+            setSelectedLeaveRequest(null);
+          }}
+          onSuccess={() => {
+            setShowRejectModal(false);
+            setSelectedLeaveRequest(null);
+            handleRejectSuccess();
+          }}
+          employeeId={selectedLeaveRequest.employee_id}
+          createdDate={selectedLeaveRequest.created_date}
+          employeeName={selectedLeaveRequest.full_name}
         />
       )}
     </div>

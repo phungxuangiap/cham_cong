@@ -195,6 +195,54 @@ const authService = {
     return apiClient.get('/auth/attendance/today-status');
   },
 
+  // ==================== LEAVE REQUEST SERVICES ====================
+
+  // Create Leave Request
+  createLeaveRequest: async (data: any) => {
+    return apiClient.post('/auth/leave-request', data);
+  },
+
+  // Get My Leave Requests
+  getMyLeaveRequests: async () => {
+    return apiClient.get('/auth/my-leave-requests');
+  },
+
+  // Get My Leave Statistics
+  getMyLeaveStats: async (year?: number) => {
+    const params = year ? `?year=${year}` : '';
+    return apiClient.get(`/auth/my-leave-stats${params}`);
+  },
+
+  // Delete My Leave Request
+  deleteMyLeaveRequest: async (employeeId: string, createdDate: string) => {
+    return apiClient.delete('/auth/leave-request', { data: { employeeId, createdDate } });
+  },
+
+  // Get All Pending Leave Requests (HR/Admin)
+  getPendingLeaveRequests: async () => {
+    return apiClient.get('/auth/leave-requests/pending');
+  },
+
+  // Get All Leave Requests with filters (HR/Admin)
+  getAllLeaveRequests: async (filters?: any) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.departmentId) params.append('departmentId', filters.departmentId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    return apiClient.get(`/auth/leave-requests?${params.toString()}`);
+  },
+
+  // Approve Leave Request (HR/Admin)
+  approveLeaveRequest: async (employeeId: string, createdDate: string) => {
+    return apiClient.put('/auth/leave-request/approve', { employeeId, createdDate });
+  },
+
+  // Reject Leave Request (HR/Admin)
+  rejectLeaveRequest: async (employeeId: string, createdDate: string, rejectReason: string) => {
+    return apiClient.put('/auth/leave-request/reject', { employeeId, createdDate, rejectReason });
+  },
+
   // Logout
   logout: async () => {
     return apiClient.post('/auth/logout');

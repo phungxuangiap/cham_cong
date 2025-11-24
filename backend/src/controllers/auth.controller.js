@@ -4,6 +4,7 @@ const ContractModel = require('../../models/contract.model');
 const DepartmentModel = require('../../models/department.model');
 const WorkShiftModel = require('../../models/workshift.model');
 const DailyTimesheetModel = require('../../models/dailyTimesheet.model');
+const LeaveRequestModel = require('../../models/leaveRequest.model');
 const CronService = require('../../services/cron.service');
 const JWTConfig = require('../../config/jwt.config');
 const { v4: uuidv4 } = require('uuid');
@@ -1524,7 +1525,303 @@ class AuthController {
       });
     }
   }
+
+  // ==================== LEAVE REQUEST ROUTES ====================
+
+  /**
+   * Create leave request (Employee)
+   */
+  static async createLeaveRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { leaveType, startDate, endDate, reason } = req.body;
+
+      // Validation
+      if (!leaveType || !startDate || !endDate) {
+        return res.status(400).json({
+          message: 'Vui lòng điền đầy đủ thông tin: loại nghỉ phép, ngày bắt đầu, ngày kết thúc.'
+        });
+      }
+
+      // Validate dates
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (end < start) {
+        return res.status(400).json({
+          message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.'
+        });
+      }
+
+      // Create request (model will check for overlaps)
+      const leaveRequest = await LeaveRequestModel.create({
+        employeeId: employee_id,
+        leaveType,
+        startDate,
+        endDate,
+        reason
+      });
+
+      return res.status(201).json({
+        message: 'Tạo yêu cầu nghỉ phép thành công',
+        leaveRequest
+      });
+    } catch (error) {
+      console.error('Create leave request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get my leave requests (Employee)
+   */
+  static async getMyLeaveRequests(req, res) {
+    try {
+      const { employee_id } = req.user;
+
+      const leaveRequests = await LeaveRequestModel.getByEmployeeId(employee_id);
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu nghỉ phép thành công',
+        leaveRequests
+      });
+    } catch (error) {
+      console.error('Get my leave requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get all pending leave requests (HR/Admin)
+   */
+  static async getPendingLeaveRequests(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể xem danh sách yêu cầu chờ phê duyệt.'
+        });
+      }
+
+      const leaveRequests = await LeaveRequestModel.getAllPending();
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu chờ phê duyệt thành công',
+        leaveRequests
+      });
+    } catch (error) {
+      console.error('Get pending leave requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get all leave requests with filters (HR/Admin)
+   */
+  static async getAllLeaveRequests(req, res) {
+    try {
+      const { role } = req.user;
+      const { status, departmentId, startDate, endDate } = req.query;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể xem tất cả yêu cầu nghỉ phép.'
+        });
+      }
+
+      const filters = {
+        status,
+        departmentId,
+        startDate,
+        endDate
+      };
+
+      const leaveRequests = await LeaveRequestModel.getAll(filters);
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu nghỉ phép thành công',
+        leaveRequests
+      });
+    } catch (error) {
+      console.error('Get all leave requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Approve leave request (HR/Admin)
+   */
+  static async approveLeaveRequest(req, res) {
+    try {
+      const { role, employee_id: approver_id } = req.user;
+      const { employeeId, createdDate } = req.body;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể phê duyệt yêu cầu nghỉ phép.'
+        });
+      }
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      // Check if request exists
+      const request = await LeaveRequestModel.getByEmployeeAndDate(employeeId, createdDate);
+      if (!request) {
+        return res.status(404).json({
+          message: 'Yêu cầu nghỉ phép không tồn tại.'
+        });
+      }
+
+      if (request.status !== 'pending') {
+        return res.status(400).json({
+          message: `Yêu cầu đã được ${request.status === 'approved' ? 'phê duyệt' : 'từ chối'} trước đó.`
+        });
+      }
+
+      await LeaveRequestModel.approve(employeeId, createdDate, approver_id);
+
+      return res.status(200).json({
+        message: 'Phê duyệt yêu cầu nghỉ phép thành công'
+      });
+    } catch (error) {
+      console.error('Approve leave request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Reject leave request (HR/Admin)
+   */
+  static async rejectLeaveRequest(req, res) {
+    try {
+      const { role, employee_id: approver_id } = req.user;
+      const { employeeId, createdDate, rejectReason } = req.body;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể từ chối yêu cầu nghỉ phép.'
+        });
+      }
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      if (!rejectReason) {
+        return res.status(400).json({
+          message: 'Vui lòng nhập lý do từ chối.'
+        });
+      }
+
+      // Check if request exists
+      const request = await LeaveRequestModel.getByEmployeeAndDate(employeeId, createdDate);
+      if (!request) {
+        return res.status(404).json({
+          message: 'Yêu cầu nghỉ phép không tồn tại.'
+        });
+      }
+
+      if (request.status !== 'pending') {
+        return res.status(400).json({
+          message: `Yêu cầu đã được ${request.status === 'approved' ? 'phê duyệt' : 'từ chối'} trước đó.`
+        });
+      }
+
+      await LeaveRequestModel.reject(employeeId, createdDate, approver_id, rejectReason);
+
+      return res.status(200).json({
+        message: 'Đã từ chối yêu cầu nghỉ phép'
+      });
+    } catch (error) {
+      console.error('Reject leave request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Delete my leave request (Employee - only pending)
+   */
+  static async deleteMyLeaveRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { employeeId, createdDate } = req.body;
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      // Verify ownership
+      if (employeeId !== employee_id) {
+        return res.status(403).json({
+          message: 'Bạn không có quyền xóa yêu cầu này.'
+        });
+      }
+
+      await LeaveRequestModel.delete(employeeId, createdDate, employee_id);
+
+      return res.status(200).json({
+        message: 'Xóa yêu cầu nghỉ phép thành công'
+      });
+    } catch (error) {
+      console.error('Delete leave request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get leave statistics (Employee)
+   */
+  static async getMyLeaveStats(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const year = req.query.year || new Date().getFullYear();
+
+      const stats = await LeaveRequestModel.getStatsByEmployee(employee_id, year);
+
+      return res.status(200).json({
+        message: 'Lấy thống kê nghỉ phép thành công',
+        stats,
+        year
+      });
+    } catch (error) {
+      console.error('Get leave stats error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = AuthController;
+
 

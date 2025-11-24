@@ -4,20 +4,22 @@ import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { logout } from '../features/auth/authSlice';
 import authService from '../services/authService';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
+import CreateLeaveRequestModal from '../components/common/CreateLeaveRequestModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
   ArrowRightOnRectangleIcon, 
   UserCircleIcon,
   ClockIcon,
   CalendarDaysIcon,
-  DocumentTextIcon,
   BriefcaseIcon,
   ChartBarIcon,
   Bars3Icon,
   XMarkIcon,
   PencilIcon,
   CheckCircleIcon,
-  XCircleIcon
+  XCircleIcon,
+  PlusIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
 
 interface EmployeeData {
@@ -62,6 +64,10 @@ const EmployeeDashboard = () => {
   const [checkOutLoading, setCheckOutLoading] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrType, setQrType] = useState<'checkin' | 'checkout'>('checkin');
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [leaveStats, setLeaveStats] = useState<any>(null);
+  const [leaveLoading, setLeaveLoading] = useState(false);
 
   useEffect(() => {
     const fetchEmployeeData = async () => {
@@ -94,6 +100,10 @@ const EmployeeDashboard = () => {
       fetchTimesheets();
       fetchTodayStatus();
     }
+    if (activeTab === 'leave') {
+      fetchLeaveRequests();
+      fetchLeaveStats();
+    }
   }, [activeTab]);
 
   const fetchTodayStatus = async () => {
@@ -102,6 +112,28 @@ const EmployeeDashboard = () => {
       setTodayStatus(response.data.status);
     } catch (error) {
       console.error('Error fetching today status:', error);
+    }
+  };
+
+  const fetchLeaveRequests = async () => {
+    setLeaveLoading(true);
+    try {
+      const response = await authService.getMyLeaveRequests();
+      setLeaveRequests(response.data.leaveRequests);
+    } catch (error) {
+      console.error('Error fetching leave requests:', error);
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
+
+  const fetchLeaveStats = async () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const response = await authService.getMyLeaveStats(currentYear);
+      setLeaveStats(response.data.stats);
+    } catch (error) {
+      console.error('Error fetching leave stats:', error);
     }
   };
 
@@ -198,6 +230,60 @@ const EmployeeDashboard = () => {
         console.error('Error refreshing employee data:', error);
       }
     }
+  };
+
+  const handleLeaveSuccess = async () => {
+    // Refresh leave requests after creation
+    await fetchLeaveRequests();
+    await fetchLeaveStats();
+  };
+
+  const handleDeleteLeaveRequest = async (employeeId: string, createdDate: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa yêu cầu nghỉ phép này?')) {
+      return;
+    }
+
+    try {
+      await authService.deleteMyLeaveRequest(employeeId, createdDate);
+      alert('✅ Đã xóa yêu cầu nghỉ phép!');
+      await fetchLeaveRequests();
+      await fetchLeaveStats();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi xóa yêu cầu');
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          <ClockIcon className="h-4 w-4 mr-1" />
+          Chờ duyệt
+        </span>;
+      case 'approved':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          <CheckCircleIcon className="h-4 w-4 mr-1" />
+          Đã duyệt
+        </span>;
+      case 'rejected':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <XCircleIcon className="h-4 w-4 mr-1" />
+          Từ chối
+        </span>;
+      default:
+        return null;
+    }
+  };
+
+  const getLeaveTypeLabel = (type: string) => {
+    const types: any = {
+      annual: 'Nghỉ phép năm',
+      sick: 'Nghỉ ốm',
+      personal: 'Nghỉ cá nhân',
+      unpaid: 'Nghỉ không lương',
+      other: 'Khác'
+    };
+    return types[type] || type;
   };
 
   const handleLogout = () => {
@@ -736,9 +822,143 @@ const EmployeeDashboard = () => {
           )}
 
           {activeTab === 'leave' && (
-            <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Quản lý nghỉ phép</h3>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+            <div className="space-y-6">
+              {/* Leave Stats */}
+              {leaveStats && (
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Nghỉ phép năm</h4>
+                    <p className="text-3xl font-bold">{leaveStats.annual || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">ngày</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-red-500 to-red-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Nghỉ ốm</h4>
+                    <p className="text-3xl font-bold">{leaveStats.sick || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">ngày</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Nghỉ cá nhân</h4>
+                    <p className="text-3xl font-bold">{leaveStats.personal || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">ngày</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-gray-500 to-gray-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Không lương</h4>
+                    <p className="text-3xl font-bold">{leaveStats.unpaid || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">ngày</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-green-500 to-green-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Tổng cộng</h4>
+                    <p className="text-3xl font-bold">{leaveStats.total || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">ngày</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Leave Requests List */}
+              <div className="card">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Danh sách yêu cầu nghỉ phép</h3>
+                  <button
+                    onClick={() => setShowLeaveModal(true)}
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                    Tạo yêu cầu mới
+                  </button>
+                </div>
+
+                {leaveLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : leaveRequests.length === 0 ? (
+                  <div className="text-center py-12">
+                    <CalendarDaysIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Chưa có yêu cầu nghỉ phép nào</p>
+                    <button
+                      onClick={() => setShowLeaveModal(true)}
+                      className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Tạo yêu cầu đầu tiên →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Loại nghỉ phép
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Thời gian
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Số ngày
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Lý do
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Trạng thái
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ngày tạo
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Hành động
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {leaveRequests.map((request) => (
+                          <tr key={request.request_id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {getLeaveTypeLabel(request.leave_type)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div>
+                                {new Date(request.start_date).toLocaleDateString('vi-VN')}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                đến {new Date(request.end_date).toLocaleDateString('vi-VN')}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <span className="font-medium text-blue-600">{request.total_days}</span> ngày
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                              {request.reason || '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {getStatusBadge(request.status)}
+                              {request.status === 'rejected' && request.reject_reason && (
+                                <div className="mt-1 text-xs text-red-600">
+                                  {request.reject_reason}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(request.created_at).toLocaleDateString('vi-VN')}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                              {request.status === 'pending' && (
+                                <button
+                                  onClick={() => handleDeleteLeaveRequest(request.employee_id, request.created_date)}
+                                  className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50"
+                                  title="Xóa yêu cầu"
+                                >
+                                  <TrashIcon className="h-5 w-5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -876,6 +1096,13 @@ const EmployeeDashboard = () => {
           employeeData={employeeData}
         />
       )}
+
+      {/* Create Leave Request Modal */}
+      <CreateLeaveRequestModal
+        isOpen={showLeaveModal}
+        onClose={() => setShowLeaveModal(false)}
+        onSuccess={handleLeaveSuccess}
+      />
     </div>
   );
 };
