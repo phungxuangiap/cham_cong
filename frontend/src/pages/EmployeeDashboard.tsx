@@ -5,6 +5,7 @@ import { logout } from '../features/auth/authSlice';
 import authService from '../services/authService';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
 import CreateLeaveRequestModal from '../components/common/CreateLeaveRequestModal';
+import CreateOvertimeRequestModal from '../components/common/CreateOvertimeRequestModal';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
   ArrowRightOnRectangleIcon, 
@@ -68,6 +69,10 @@ const EmployeeDashboard = () => {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [leaveStats, setLeaveStats] = useState<any>(null);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
+  const [overtimeRequests, setOvertimeRequests] = useState<any[]>([]);
+  const [overtimeStats, setOvertimeStats] = useState<any>(null);
+  const [overtimeLoading, setOvertimeLoading] = useState(false);
 
   useEffect(() => {
     const fetchEmployeeData = async () => {
@@ -104,6 +109,10 @@ const EmployeeDashboard = () => {
       fetchLeaveRequests();
       fetchLeaveStats();
     }
+    if (activeTab === 'overtime') {
+      fetchOvertimeRequests();
+      fetchOvertimeStats();
+    }
   }, [activeTab]);
 
   const fetchTodayStatus = async () => {
@@ -134,6 +143,29 @@ const EmployeeDashboard = () => {
       setLeaveStats(response.data.stats);
     } catch (error) {
       console.error('Error fetching leave stats:', error);
+    }
+  };
+
+  const fetchOvertimeRequests = async () => {
+    setOvertimeLoading(true);
+    try {
+      const response = await authService.getMyOvertimeRequests();
+      setOvertimeRequests(response.data.overtimeRequests);
+    } catch (error) {
+      console.error('Error fetching overtime requests:', error);
+    } finally {
+      setOvertimeLoading(false);
+    }
+  };
+
+  const fetchOvertimeStats = async () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      const response = await authService.getMyOvertimeStats(currentYear, currentMonth);
+      setOvertimeStats(response.data.stats);
+    } catch (error) {
+      console.error('Error fetching overtime stats:', error);
     }
   };
 
@@ -238,6 +270,12 @@ const EmployeeDashboard = () => {
     await fetchLeaveStats();
   };
 
+  const handleOvertimeSuccess = async () => {
+    // Refresh overtime requests after creation
+    await fetchOvertimeRequests();
+    await fetchOvertimeStats();
+  };
+
   const handleDeleteLeaveRequest = async (employeeId: string, createdDate: string) => {
     if (!window.confirm('Bạn có chắc chắn muốn xóa yêu cầu nghỉ phép này?')) {
       return;
@@ -248,6 +286,21 @@ const EmployeeDashboard = () => {
       alert('✅ Đã xóa yêu cầu nghỉ phép!');
       await fetchLeaveRequests();
       await fetchLeaveStats();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi xóa yêu cầu');
+    }
+  };
+
+  const handleDeleteOvertimeRequest = async (employeeId: string, createdDate: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa yêu cầu tăng ca này?')) {
+      return;
+    }
+
+    try {
+      await authService.deleteMyOvertimeRequest(employeeId, createdDate);
+      alert('✅ Đã xóa yêu cầu tăng ca!');
+      await fetchOvertimeRequests();
+      await fetchOvertimeStats();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Có lỗi xảy ra khi xóa yêu cầu');
     }
@@ -963,9 +1016,125 @@ const EmployeeDashboard = () => {
           )}
 
           {activeTab === 'overtime' && (
-            <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Đăng ký làm thêm giờ</h3>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+            <div className="space-y-6">
+              {/* Overtime Stats */}
+              {overtimeStats && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="card bg-gradient-to-br from-indigo-500 to-indigo-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Số yêu cầu tháng này</h4>
+                    <p className="text-3xl font-bold">{overtimeStats.total_requests || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">yêu cầu</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-teal-500 to-teal-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Đã duyệt</h4>
+                    <p className="text-3xl font-bold">{overtimeStats.approved_count || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">yêu cầu</p>
+                  </div>
+                  <div className="card bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+                    <h4 className="text-sm font-semibold opacity-90 mb-2">Tổng giờ OT</h4>
+                    <p className="text-3xl font-bold">{overtimeStats.total_hours || 0}</p>
+                    <p className="text-xs opacity-80 mt-1">giờ</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Overtime Requests List */}
+              <div className="card">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Danh sách yêu cầu tăng ca</h3>
+                  <button
+                    onClick={() => setShowOvertimeModal(true)}
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                    Tạo yêu cầu mới
+                  </button>
+                </div>
+
+                {overtimeLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : overtimeRequests.length === 0 ? (
+                  <div className="text-center py-12">
+                    <BriefcaseIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Chưa có yêu cầu tăng ca nào</p>
+                    <button
+                      onClick={() => setShowOvertimeModal(true)}
+                      className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Tạo yêu cầu đầu tiên →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ngày tăng ca
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Thời gian
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Tổng giờ
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Lý do
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Trạng thái
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ngày tạo
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Hành động
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {overtimeRequests.map((request) => (
+                          <tr key={`${request.employee_id}-${request.created_date}`} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {new Date(request.ot_date).toLocaleDateString('vi-VN')}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div>
+                                {request.start_time} - {request.end_time}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <span className="font-medium text-orange-600">{request.total_hours}</span> giờ
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                              {request.reason || '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {getStatusBadge(request.status)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(request.created_date).toLocaleDateString('vi-VN')}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                              {request.status === 'pending' && (
+                                <button
+                                  onClick={() => handleDeleteOvertimeRequest(request.employee_id, request.created_date)}
+                                  className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50"
+                                  title="Xóa yêu cầu"
+                                >
+                                  <TrashIcon className="h-5 w-5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1102,6 +1271,13 @@ const EmployeeDashboard = () => {
         isOpen={showLeaveModal}
         onClose={() => setShowLeaveModal(false)}
         onSuccess={handleLeaveSuccess}
+      />
+
+      {/* Create Overtime Request Modal */}
+      <CreateOvertimeRequestModal
+        isOpen={showOvertimeModal}
+        onClose={() => setShowOvertimeModal(false)}
+        onSuccess={handleOvertimeSuccess}
       />
     </div>
   );

@@ -5,6 +5,7 @@ const DepartmentModel = require('../../models/department.model');
 const WorkShiftModel = require('../../models/workshift.model');
 const DailyTimesheetModel = require('../../models/dailyTimesheet.model');
 const LeaveRequestModel = require('../../models/leaveRequest.model');
+const OvertimeRequestModel = require('../../models/overtimeRequest.model');
 const CronService = require('../../services/cron.service');
 const JWTConfig = require('../../config/jwt.config');
 const { v4: uuidv4 } = require('uuid');
@@ -1814,6 +1815,246 @@ class AuthController {
       });
     } catch (error) {
       console.error('Get leave stats error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Create overtime request (Employee)
+   */
+  static async createOvertimeRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { otDate, startTime, endTime, totalHours, reason } = req.body;
+
+      // Validation
+      if (!otDate || !startTime || !endTime || !totalHours) {
+        return res.status(400).json({
+          message: 'Vui lòng điền đầy đủ thông tin: ngày tăng ca, giờ bắt đầu, giờ kết thúc, tổng giờ.'
+        });
+      }
+
+      // Validate times
+      if (startTime >= endTime) {
+        return res.status(400).json({
+          message: 'Giờ kết thúc phải sau giờ bắt đầu.'
+        });
+      }
+
+      // Create request (model will check for overlaps)
+      const overtimeRequest = await OvertimeRequestModel.create({
+        employeeId: employee_id,
+        otDate,
+        startTime,
+        endTime,
+        totalHours,
+        reason
+      });
+
+      return res.status(201).json({
+        message: 'Tạo yêu cầu tăng ca thành công',
+        overtimeRequest
+      });
+    } catch (error) {
+      console.error('Create overtime request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get my overtime requests (Employee)
+   */
+  static async getMyOvertimeRequests(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const requests = await OvertimeRequestModel.getByEmployeeId(employee_id);
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu tăng ca thành công',
+        overtimeRequests: requests
+      });
+    } catch (error) {
+      console.error('Get overtime requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Delete my overtime request (Employee)
+   */
+  static async deleteMyOvertimeRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { employeeId, createdDate } = req.body;
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      // Verify ownership
+      if (employeeId !== employee_id) {
+        return res.status(403).json({
+          message: 'Bạn không có quyền xóa yêu cầu này.'
+        });
+      }
+
+      await OvertimeRequestModel.delete(employeeId, createdDate, employee_id);
+
+      return res.status(200).json({
+        message: 'Xóa yêu cầu tăng ca thành công'
+      });
+    } catch (error) {
+      console.error('Delete overtime request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get pending overtime requests (HR/Admin)
+   */
+  static async getPendingOvertimeRequests(req, res) {
+    try {
+      const requests = await OvertimeRequestModel.getAllPending();
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu tăng ca chờ duyệt thành công',
+        overtimeRequests: requests
+      });
+    } catch (error) {
+      console.error('Get pending overtime requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get all overtime requests (HR/Admin)
+   */
+  static async getAllOvertimeRequests(req, res) {
+    try {
+      const filters = {
+        status: req.query.status,
+        employeeId: req.query.employeeId,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      };
+
+      const requests = await OvertimeRequestModel.getAll(filters);
+
+      return res.status(200).json({
+        message: 'Lấy danh sách yêu cầu tăng ca thành công',
+        overtimeRequests: requests
+      });
+    } catch (error) {
+      console.error('Get all overtime requests error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Approve overtime request (HR/Admin)
+   */
+  static async approveOvertimeRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { employeeId, createdDate } = req.body;
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      const overtimeRequest = await OvertimeRequestModel.approve(
+        employeeId,
+        createdDate,
+        employee_id
+      );
+
+      return res.status(200).json({
+        message: 'Duyệt yêu cầu tăng ca thành công',
+        overtimeRequest
+      });
+    } catch (error) {
+      console.error('Approve overtime request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Reject overtime request (HR/Admin)
+   */
+  static async rejectOvertimeRequest(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { employeeId, createdDate } = req.body;
+
+      if (!employeeId || !createdDate) {
+        return res.status(400).json({
+          message: 'Thiếu thông tin yêu cầu.'
+        });
+      }
+
+      const overtimeRequest = await OvertimeRequestModel.reject(
+        employeeId,
+        createdDate,
+        employee_id
+      );
+
+      return res.status(200).json({
+        message: 'Từ chối yêu cầu tăng ca thành công',
+        overtimeRequest
+      });
+    } catch (error) {
+      console.error('Reject overtime request error:', error);
+      return res.status(500).json({
+        message: error.message || 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get overtime statistics (Employee)
+   */
+  static async getMyOvertimeStats(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const year = req.query.year || new Date().getFullYear();
+      const month = req.query.month || null;
+
+      const stats = await OvertimeRequestModel.getStatsByEmployee(employee_id, year, month);
+
+      return res.status(200).json({
+        message: 'Lấy thống kê tăng ca thành công',
+        stats,
+        year,
+        month
+      });
+    } catch (error) {
+      console.error('Get overtime stats error:', error);
       return res.status(500).json({
         message: 'Lỗi máy chủ nội bộ.',
         error: error.message

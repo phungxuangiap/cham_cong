@@ -243,6 +243,64 @@ const authService = {
     return apiClient.put('/auth/leave-request/reject', { employeeId, createdDate, rejectReason });
   },
 
+  // ==================== OVERTIME REQUEST ====================
+
+  // Create Overtime Request (Employee)
+  createOvertimeRequest: async (overtimeData: {
+    otDate: string;
+    startTime: string;
+    endTime: string;
+    totalHours: number;
+    reason?: string;
+  }) => {
+    return apiClient.post('/auth/overtime-request', overtimeData);
+  },
+
+  // Get My Overtime Requests (Employee)
+  getMyOvertimeRequests: async () => {
+    return apiClient.get('/auth/my-overtime-requests');
+  },
+
+  // Delete My Overtime Request (Employee)
+  deleteMyOvertimeRequest: async (employeeId: string, createdDate: string) => {
+    return apiClient.delete('/auth/overtime-request', {
+      data: { employeeId, createdDate }
+    });
+  },
+
+  // Get My Overtime Stats (Employee)
+  getMyOvertimeStats: async (year?: number, month?: number) => {
+    const params = new URLSearchParams();
+    if (year) params.append('year', year.toString());
+    if (month) params.append('month', month.toString());
+    return apiClient.get(`/auth/my-overtime-stats?${params.toString()}`);
+  },
+
+  // Get Pending Overtime Requests (HR/Admin)
+  getPendingOvertimeRequests: async () => {
+    return apiClient.get('/auth/overtime-requests/pending');
+  },
+
+  // Get All Overtime Requests with filters (HR/Admin)
+  getAllOvertimeRequests: async (filters?: any) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.employeeId) params.append('employeeId', filters.employeeId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    return apiClient.get(`/auth/overtime-requests?${params.toString()}`);
+  },
+
+  // Approve Overtime Request (HR/Admin)
+  approveOvertimeRequest: async (employeeId: string, createdDate: string) => {
+    return apiClient.put('/auth/overtime-request/approve', { employeeId, createdDate });
+  },
+
+  // Reject Overtime Request (HR/Admin)
+  rejectOvertimeRequest: async (employeeId: string, createdDate: string) => {
+    return apiClient.put('/auth/overtime-request/reject', { employeeId, createdDate });
+  },
+
   // Logout
   logout: async () => {
     return apiClient.post('/auth/logout');

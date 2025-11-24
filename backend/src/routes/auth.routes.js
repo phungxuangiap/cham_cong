@@ -244,6 +244,60 @@ router.put('/leave-request/reject',
   AuthController.rejectLeaveRequest
 );
 
+// ==================== OVERTIME REQUEST ROUTES ====================
+
+// Create overtime request - all authenticated users
+router.post('/overtime-request',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.createOvertimeRequest
+);
+
+// Get my overtime requests - all authenticated users
+router.get('/my-overtime-requests',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getMyOvertimeRequests
+);
+
+// Delete my overtime request - all authenticated users
+router.delete('/overtime-request',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.deleteMyOvertimeRequest
+);
+
+// Get my overtime stats - all authenticated users
+router.get('/my-overtime-stats',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getMyOvertimeStats
+);
+
+// Get pending overtime requests - HR/Admin only
+router.get('/overtime-requests/pending',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.getPendingOvertimeRequests
+);
+
+// Get all overtime requests with filters - HR/Admin only
+router.get('/overtime-requests',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.getAllOvertimeRequests
+);
+
+// Approve overtime request - HR/Admin only
+router.put('/overtime-request/approve',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.approveOvertimeRequest
+);
+
+// Reject overtime request - HR/Admin only
+router.put('/overtime-request/reject',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.rejectOvertimeRequest
+);
+
 // Legacy route
 router.post('/register', AuthController.register);
 
