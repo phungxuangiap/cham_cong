@@ -3,6 +3,8 @@ const EmployeeModel = require('../../models/employee.model');
 const ContractModel = require('../../models/contract.model');
 const DepartmentModel = require('../../models/department.model');
 const WorkShiftModel = require('../../models/workshift.model');
+const DailyTimesheetModel = require('../../models/dailyTimesheet.model');
+const CronService = require('../../services/cron.service');
 const JWTConfig = require('../../config/jwt.config');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
@@ -1115,7 +1117,7 @@ class AuthController {
    */
   static async updateWorkShift(req, res) {
     try {
-      const { role } = req.user;
+      const { role, employee_id } = req.user;
 
       if (role !== 'Admin' && role !== 'HR') {
         return res.status(403).json({
@@ -1124,7 +1126,7 @@ class AuthController {
       }
 
       const { shiftId } = req.params;
-      const { shiftName, startTime, endTime, maxLateTime, departmentId } = req.body;
+      const { shiftName, startTime, endTime, maxLateTime, departmentId, scheduleForTomorrow } = req.body;
 
       if (!shiftId) {
         return res.status(400).json({
@@ -1164,18 +1166,55 @@ class AuthController {
         }
       }
 
-      const workShift = await WorkShiftModel.update(shiftId, {
-        shiftName: shiftName || existingShift.shift_name,
-        startTime: startTime || existingShift.start_time,
-        endTime: endTime || existingShift.end_time,
-        maxLateTime: maxLateTime !== undefined ? maxLateTime : existingShift.max_late_time,
-        departmentId: departmentId !== undefined ? departmentId : existingShift.department_id
-      });
+      // Check if there are active employees today
+      const activeCheck = await WorkShiftModel.checkActiveEmployees(shiftId);
+      
+      // If there are active employees and not scheduling for tomorrow
+      if (activeCheck.hasActiveEmployees && !scheduleForTomorrow) {
+        return res.status(400).json({
+          message: `Không thể cập nhật ngay. Có ${activeCheck.activeCount}/${activeCheck.totalCount} nhân viên đang làm việc với ca này.`,
+          suggestion: 'Vui lòng chọn "Lưu cho ngày mai" để áp dụng thay đổi từ ngày mai.',
+          affectedEmployees: activeCheck.employees,
+          hasActiveEmployees: true
+        });
+      }
 
-      return res.status(200).json({
-        message: 'Cập nhật ca làm việc thành công',
-        workShift
-      });
+      // If scheduling for tomorrow or no active employees
+      if (scheduleForTomorrow || activeCheck.hasActiveEmployees) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const effectiveDate = tomorrow.toISOString().split('T')[0];
+
+        const workShift = await WorkShiftModel.schedulePendingUpdate(shiftId, {
+          shiftName: shiftName || existingShift.shift_name,
+          startTime: startTime || existingShift.start_time,
+          endTime: endTime || existingShift.end_time,
+          maxLateTime: maxLateTime !== undefined ? maxLateTime : existingShift.max_late_time,
+          effectiveDate
+        }, employee_id);
+
+        return res.status(200).json({
+          message: `Đã lên lịch cập nhật ca làm việc. Thay đổi sẽ có hiệu lực từ ${effectiveDate}`,
+          workShift,
+          isScheduled: true,
+          effectiveDate
+        });
+      } else {
+        // Immediate update (no active employees)
+        const workShift = await WorkShiftModel.update(shiftId, {
+          shiftName: shiftName || existingShift.shift_name,
+          startTime: startTime || existingShift.start_time,
+          endTime: endTime || existingShift.end_time,
+          maxLateTime: maxLateTime !== undefined ? maxLateTime : existingShift.max_late_time,
+          departmentId: departmentId !== undefined ? departmentId : existingShift.department_id
+        });
+
+        return res.status(200).json({
+          message: 'Cập nhật ca làm việc thành công',
+          workShift,
+          isScheduled: false
+        });
+      }
     } catch (error) {
       console.error('Update work shift error:', error);
       return res.status(500).json({
@@ -1229,6 +1268,263 @@ class AuthController {
       });
     }
   }
+
+  /**
+   * Cancel pending work shift update (Admin/HR)
+   */
+  static async cancelPendingWorkShift(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin và HR mới có thể hủy cập nhật đã lên lịch.'
+        });
+      }
+
+      const { shiftId } = req.params;
+
+      // Check if work shift exists
+      const existingShift = await WorkShiftModel.getById(shiftId);
+      if (!existingShift) {
+        return res.status(404).json({
+          message: 'Ca làm việc không tồn tại.'
+        });
+      }
+
+      // Check if there's a pending update
+      if (!existingShift.pending_effective_date) {
+        return res.status(400).json({
+          message: 'Không có cập nhật nào đang chờ thực hiện.'
+        });
+      }
+
+      await WorkShiftModel.cancelPendingUpdate(shiftId);
+
+      return res.status(200).json({
+        message: 'Đã hủy cập nhật ca làm việc đã lên lịch'
+      });
+    } catch (error) {
+      console.error('Cancel pending work shift error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  // ==================== DAILY TIMESHEET ROUTES ====================
+
+  /**
+   * Get my timesheets (Employee/HR/Admin)
+   */
+  static async getMyTimesheets(req, res) {
+    try {
+      const { employee_id } = req.user;
+      const { startDate, endDate } = req.query;
+
+      const timesheets = await DailyTimesheetModel.getByEmployeeId(
+        employee_id,
+        startDate,
+        endDate
+      );
+
+      return res.status(200).json({
+        message: 'Lấy danh sách timesheet thành công',
+        timesheets
+      });
+    } catch (error) {
+      console.error('Get my timesheets error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get department timesheet stats (HR only)
+   */
+  static async getDepartmentTimesheetStats(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'HR' && role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ HR và Admin mới có thể xem thống kê phòng ban.'
+        });
+      }
+
+      const { date } = req.query;
+      const workDate = date || new Date().toISOString().split('T')[0];
+
+      const stats = await DailyTimesheetModel.getAllDepartmentStats(workDate);
+
+      return res.status(200).json({
+        message: 'Lấy thống kê thành công',
+        date: workDate,
+        stats
+      });
+    } catch (error) {
+      console.error('Get department stats error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get department employee details (HR only)
+   */
+  static async getDepartmentEmployeeDetails(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'HR' && role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ HR và Admin mới có thể xem chi tiết nhân viên.'
+        });
+      }
+
+      const { departmentId } = req.params;
+      const { date } = req.query;
+      const workDate = date || new Date().toISOString().split('T')[0];
+
+      const details = await DailyTimesheetModel.getEmployeeDetailsByDepartment(
+        departmentId,
+        workDate
+      );
+
+      return res.status(200).json({
+        message: 'Lấy chi tiết nhân viên thành công',
+        date: workDate,
+        employees: details
+      });
+    } catch (error) {
+      console.error('Get department employee details error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Manual trigger timesheet generation (Admin only)
+   */
+  static async manualGenerateTimesheets(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể tạo timesheet thủ công.'
+        });
+      }
+
+      const { date } = req.body;
+      const result = await CronService.manualTrigger(date);
+
+      return res.status(200).json({
+        message: 'Tạo timesheet thành công',
+        result
+      });
+    } catch (error) {
+      console.error('Manual generate timesheets error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * User check-in (All authenticated users)
+   */
+  static async userCheckIn(req, res) {
+    try {
+      const { employee_id } = req.user;
+      
+      // Get current time
+      const now = new Date();
+      const currentTime = now.toTimeString().split(' ')[0]; // HH:mm:ss
+      const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const result = await DailyTimesheetModel.checkIn(
+        employee_id,
+        currentDate,
+        currentTime
+      );
+
+      return res.status(200).json({
+        message: result.message,
+        checkInTime: result.checkInTime,
+        minutesLate: result.minutesLate
+      });
+    } catch (error) {
+      console.error('User check-in error:', error);
+      return res.status(400).json({
+        message: error.message || 'Lỗi khi check-in.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * User check-out (All authenticated users)
+   */
+  static async userCheckOut(req, res) {
+    try {
+      const { employee_id } = req.user;
+      
+      // Get current time
+      const now = new Date();
+      const currentTime = now.toTimeString().split(' ')[0]; // HH:mm:ss
+      const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const result = await DailyTimesheetModel.checkOut(
+        employee_id,
+        currentDate,
+        currentTime
+      );
+
+      return res.status(200).json({
+        message: result.message,
+        checkOutTime: result.checkOutTime,
+        minutesEarly: result.minutesEarly
+      });
+    } catch (error) {
+      console.error('User check-out error:', error);
+      return res.status(400).json({
+        message: error.message || 'Lỗi khi check-out.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get today's attendance status (All authenticated users)
+   */
+  static async getTodayAttendanceStatus(req, res) {
+    try {
+      const { employee_id } = req.user;
+
+      const status = await DailyTimesheetModel.getTodayStatus(employee_id);
+
+      return res.status(200).json({
+        message: 'Lấy trạng thái chấm công thành công',
+        status
+      });
+    } catch (error) {
+      console.error('Get today status error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = AuthController;
+

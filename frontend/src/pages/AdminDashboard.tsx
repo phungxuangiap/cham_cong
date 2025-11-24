@@ -168,6 +168,18 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleCancelPendingWorkShift = async (shiftId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn hủy cập nhật đã lên lịch?')) return;
+    
+    try {
+      await authService.cancelPendingWorkShift(shiftId);
+      alert('✅ Đã hủy cập nhật ca làm việc đã lên lịch!');
+      fetchWorkShifts();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi hủy cập nhật');
+    }
+  };
+
   const handleDeleteDepartment = async (departmentId: string) => {
     if (!confirm('Bạn có chắc chắn muốn xóa phòng ban này?')) return;
     
@@ -858,6 +870,11 @@ const AdminDashboard = () => {
                                     {department.department_name}
                                   </span>
                                 )}
+                                {shift.pending_effective_date && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 animate-pulse">
+                                    📅 Có thay đổi chờ
+                                  </span>
+                                )}
                               </div>
                               <div className="flex gap-4 text-sm text-gray-600">
                                 <span>
@@ -872,11 +889,32 @@ const AdminDashboard = () => {
                                   </span>
                                 )}
                               </div>
+                              {shift.pending_effective_date && (
+                                <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                                  <p className="font-semibold text-orange-800 mb-1">
+                                    ⏰ Thay đổi có hiệu lực từ: {new Date(shift.pending_effective_date).toLocaleDateString('vi-VN')}
+                                  </p>
+                                  <div className="grid grid-cols-3 gap-2 text-orange-700">
+                                    <span>→ {shift.pending_shift_name}</span>
+                                    <span>→ {shift.pending_start_time} - {shift.pending_end_time}</span>
+                                    {shift.pending_max_late_time && <span>→ Max: {shift.pending_max_late_time}</span>}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
 
                           {/* Action Buttons */}
                           <div className="flex gap-2 ml-4">
+                            {shift.pending_effective_date && (
+                              <button
+                                onClick={() => handleCancelPendingWorkShift(shift.shift_id)}
+                                className="px-4 py-2 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 font-medium transition-colors flex items-center gap-2"
+                                title="Hủy cập nhật đã lên lịch"
+                              >
+                                ⏸️ Hủy lịch
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setSelectedWorkShift(shift);

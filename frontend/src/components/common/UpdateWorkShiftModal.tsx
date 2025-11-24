@@ -32,6 +32,9 @@ const UpdateWorkShiftModal = ({
   const [departmentId, setDepartmentId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [affectedEmployees, setAffectedEmployees] = useState<any[]>([]);
+  const [scheduleForTomorrow, setScheduleForTomorrow] = useState(false);
 
   useEffect(() => {
     if (workShiftData) {
@@ -55,19 +58,64 @@ const UpdateWorkShiftModal = ({
     }
 
     try {
-      await authService.updateWorkShift(workShiftData.shift_id, {
+      const response = await authService.updateWorkShift(workShiftData.shift_id, {
         shiftName,
         startTime,
         endTime,
         maxLateTime: maxLateTime || null,
-        departmentId
+        departmentId,
+        scheduleForTomorrow
       });
 
-      alert('Cập nhật ca làm việc thành công!');
+      // Success
+      if (response.data.isScheduled) {
+        alert(`✅ ${response.data.message}\nThay đổi sẽ tự động áp dụng lúc 00:01 ngày ${response.data.effectiveDate}`);
+      } else {
+        alert('✅ Cập nhật ca làm việc thành công!');
+      }
+      
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Có lỗi xảy ra khi cập nhật ca làm việc');
+      // Check if error is because of active employees
+      const errorData = err.response?.data;
+      
+      if (errorData?.hasActiveEmployees) {
+        // Show warning modal instead of error
+        setAffectedEmployees(errorData.affectedEmployees || []);
+        setShowConfirmModal(true);
+        setLoading(false);
+        return;
+      }
+      
+      // Other errors
+      setError(errorData?.message || 'Có lỗi xảy ra khi cập nhật ca làm việc');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmSchedule = async () => {
+    setShowConfirmModal(false);
+    setScheduleForTomorrow(true);
+    
+    // Trigger submit again with scheduleForTomorrow = true
+    try {
+      setLoading(true);
+      const response = await authService.updateWorkShift(workShiftData.shift_id, {
+        shiftName,
+        startTime,
+        endTime,
+        maxLateTime: maxLateTime || null,
+        departmentId,
+        scheduleForTomorrow: true
+      });
+
+      alert(`✅ ${response.data.message}\nThay đổi sẽ tự động áp dụng lúc 00:01 ngày ${response.data.effectiveDate}`);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Có lỗi xảy ra khi lên lịch cập nhật');
     } finally {
       setLoading(false);
     }
@@ -229,6 +277,92 @@ const UpdateWorkShiftModal = ({
             </Transition.Child>
           </div>
         </div>
+
+        {/* Confirmation Modal for Active Employees */}
+        <Transition appear show={showConfirmModal} as={Fragment}>
+          <Dialog as="div" className="relative z-[60]" onClose={() => setShowConfirmModal(false)}>
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0"
+              enterTo="opacity-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100"
+              leaveTo="opacity-0"
+            >
+              <div className="fixed inset-0 bg-black bg-opacity-40" />
+            </Transition.Child>
+
+            <div className="fixed inset-0 overflow-y-auto">
+              <div className="flex min-h-full items-center justify-center p-4">
+                <Transition.Child
+                  as={Fragment}
+                  enter="ease-out duration-300"
+                  enterFrom="opacity-0 scale-95"
+                  enterTo="opacity-100 scale-100"
+                  leave="ease-in duration-200"
+                  leaveFrom="opacity-100 scale-100"
+                  leaveTo="opacity-0 scale-95"
+                >
+                  <Dialog.Panel className="w-full max-w-lg transform overflow-hidden rounded-2xl bg-white p-6 shadow-xl transition-all">
+                    <div className="mb-4">
+                      <Dialog.Title className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-2xl">⚠️</span>
+                        Có nhân viên đang làm việc
+                      </Dialog.Title>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                        <p className="text-sm text-yellow-800">
+                          <strong>Có {affectedEmployees.length} nhân viên</strong> đang làm việc với ca này.
+                        </p>
+                        <p className="text-sm text-yellow-700 mt-2">
+                          Bạn không thể cập nhật ngay lập tức. Vui lòng chọn một trong hai:
+                        </p>
+                      </div>
+
+                      {affectedEmployees.length > 0 && (
+                        <div className="max-h-40 overflow-y-auto bg-gray-50 rounded-lg p-3">
+                          <p className="text-xs font-semibold text-gray-700 mb-2">Danh sách nhân viên:</p>
+                          <ul className="space-y-1">
+                            {affectedEmployees.map((emp: any, idx: number) => (
+                              <li key={idx} className="text-xs text-gray-600 flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${emp.check_out_time ? 'bg-green-500' : 'bg-blue-500'}`}></span>
+                                {emp.full_name} ({emp.employee_id})
+                                {emp.check_out_time ? ' - Đã checkout' : ' - Đang làm việc'}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => setShowConfirmModal(false)}
+                        className="w-full px-4 py-3 text-sm font-medium text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        ❌ Hủy (Đợi đến cuối ngày)
+                      </button>
+                      <button
+                        onClick={handleConfirmSchedule}
+                        disabled={loading}
+                        className="w-full px-4 py-3 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                      >
+                        {loading ? 'Đang xử lý...' : '📅 Lưu cho ngày mai (Khuyến nghị)'}
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-3 text-center">
+                      💡 Chọn "Lưu cho ngày mai" để thay đổi có hiệu lực từ 00:01 ngày mai
+                    </p>
+                  </Dialog.Panel>
+                </Transition.Child>
+              </div>
+            </div>
+          </Dialog>
+        </Transition>
       </Dialog>
     </Transition>
   );

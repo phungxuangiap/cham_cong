@@ -138,7 +138,60 @@ router.delete('/work-shift/:shiftId',
   AuthController.deleteWorkShift
 );
 
+// Cancel pending work shift update - Admin/HR only
+router.delete('/work-shift/:shiftId/pending',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.cancelPendingWorkShift
+);
+
+// ==================== DAILY TIMESHEET ROUTES ====================
+
+// Get my timesheets - all authenticated users
+router.get('/my-timesheets',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getMyTimesheets
+);
+
+// Get department timesheet stats - HR/Admin only
+router.get('/timesheets/department-stats',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getDepartmentTimesheetStats
+);
+
+// Get department employee details - HR/Admin only
+router.get('/timesheets/department/:departmentId/employees',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getDepartmentEmployeeDetails
+);
+
+// Manual generate timesheets - Admin only
+router.post('/timesheets/generate',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdmin,
+  AuthController.manualGenerateTimesheets
+);
+
+// User check-in - all authenticated users
+router.post('/attendance/check-in',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.userCheckIn
+);
+
+// User check-out - all authenticated users
+router.post('/attendance/check-out',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.userCheckOut
+);
+
+// Get today's attendance status - all authenticated users
+router.get('/attendance/today-status',
+  AuthMiddleware.verifyAccessToken,
+  AuthController.getTodayAttendanceStatus
+);
+
 // Legacy route
 router.post('/register', AuthController.register);
 
 module.exports = router;
+

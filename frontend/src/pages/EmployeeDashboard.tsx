@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { logout } from '../features/auth/authSlice';
 import authService from '../services/authService';
 import UpdateProfileModal from '../components/common/UpdateProfileModal';
+import { QRCodeSVG } from 'qrcode.react';
 import { 
   ArrowRightOnRectangleIcon, 
   UserCircleIcon,
@@ -14,7 +15,9 @@ import {
   ChartBarIcon,
   Bars3Icon,
   XMarkIcon,
-  PencilIcon
+  PencilIcon,
+  CheckCircleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline';
 
 interface EmployeeData {
@@ -51,6 +54,14 @@ const EmployeeDashboard = () => {
   const [contract, setContract] = useState<ContractData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [timesheets, setTimesheets] = useState<any[]>([]);
+  const [timesheetsLoading, setTimesheetsLoading] = useState(false);
+  const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
+  const [todayStatus, setTodayStatus] = useState<any>(null);
+  const [checkInLoading, setCheckInLoading] = useState(false);
+  const [checkOutLoading, setCheckOutLoading] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrType, setQrType] = useState<'checkin' | 'checkout'>('checkin');
 
   useEffect(() => {
     const fetchEmployeeData = async () => {
@@ -77,6 +88,105 @@ const EmployeeDashboard = () => {
 
     fetchEmployeeData();
   }, [user?.employee_id]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      fetchTimesheets();
+      fetchTodayStatus();
+    }
+  }, [activeTab]);
+
+  const fetchTodayStatus = async () => {
+    try {
+      const response = await authService.getTodayAttendanceStatus();
+      setTodayStatus(response.data.status);
+    } catch (error) {
+      console.error('Error fetching today status:', error);
+    }
+  };
+
+  const fetchTimesheets = async () => {
+    setTimesheetsLoading(true);
+    try {
+      const { startDate, endDate } = dateRange;
+      const response = await authService.getMyTimesheets(startDate, endDate);
+      setTimesheets(response.data.timesheets);
+    } catch (error) {
+      console.error('Error fetching timesheets:', error);
+    } finally {
+      setTimesheetsLoading(false);
+    }
+  };
+
+  const handleShowCheckInQR = () => {
+    setQrType('checkin');
+    setShowQRModal(true);
+  };
+
+  const handleShowCheckOutQR = () => {
+    setQrType('checkout');
+    setShowQRModal(true);
+  };
+
+  const handleCheckIn = async () => {
+    setCheckInLoading(true);
+    try {
+      const response = await authService.userCheckIn();
+      alert(response.data.message);
+      await fetchTodayStatus();
+      await fetchTimesheets();
+      setShowQRModal(false);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi check-in');
+    } finally {
+      setCheckInLoading(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    setCheckOutLoading(true);
+    try {
+      const response = await authService.userCheckOut();
+      alert(response.data.message);
+      await fetchTodayStatus();
+      await fetchTimesheets();
+      setShowQRModal(false);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Có lỗi xảy ra khi check-out');
+    } finally {
+      setCheckOutLoading(false);
+    }
+  };
+
+  // Generate QR data based on type
+  const generateQRData = () => {
+    const timestamp = new Date().getTime();
+    const baseData = {
+      employeeId: user?.employee_id,
+      username: user?.username,
+      fullName: user?.full_name,
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString('vi-VN'),
+      timestamp
+    };
+
+    if (qrType === 'checkin') {
+      return JSON.stringify({
+        ...baseData,
+        action: 'CHECK_IN',
+        shiftName: todayStatus?.timesheet?.shift_name,
+        shiftStart: todayStatus?.timesheet?.start_time
+      });
+    } else {
+      return JSON.stringify({
+        ...baseData,
+        action: 'CHECK_OUT',
+        shiftName: todayStatus?.timesheet?.shift_name,
+        shiftEnd: todayStatus?.timesheet?.end_time,
+        checkInTime: todayStatus?.timesheet?.check_in_time
+      });
+    }
+  };
 
   const handleUpdateSuccess = async () => {
     // Refresh employee data after update
@@ -414,9 +524,214 @@ const EmployeeDashboard = () => {
           )}
 
           {activeTab === 'attendance' && (
-            <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Lịch sử chấm công</h3>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+            <div className="space-y-6">
+              {/* Today's Status Card */}
+              {todayStatus && todayStatus.hasTimesheet && (
+                <div className="card bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-gray-900">Trạng thái chấm công hôm nay</h3>
+                    <span className="text-sm text-gray-600">
+                      {new Date().toLocaleDateString('vi-VN')}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div className="bg-white p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Ca làm việc</p>
+                      <p className="text-lg font-semibold text-gray-900">
+                        {todayStatus.timesheet?.shift_name || 'N/A'}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {todayStatus.timesheet?.start_time} - {todayStatus.timesheet?.end_time}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white p-4 rounded-lg shadow-sm">
+                      <p className="text-sm text-gray-600 mb-1">Trạng thái</p>
+                      {todayStatus.timesheet?.check_in_time && todayStatus.timesheet?.check_out_time ? (
+                        <p className="text-lg font-semibold text-green-600">✓ Đã hoàn thành</p>
+                      ) : todayStatus.timesheet?.check_in_time ? (
+                        <p className="text-lg font-semibold text-blue-600">⏱ Đang làm việc</p>
+                      ) : (
+                        <p className="text-lg font-semibold text-gray-600">⊗ Chưa chấm công</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Warning message if can't check-in yet */}
+                  {!todayStatus.canCheckIn && !todayStatus.timesheet?.check_in_time && todayStatus.checkInMessage && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                      <p className="text-sm text-yellow-800 flex items-center gap-2">
+                        <ClockIcon className="h-5 w-5" />
+                        {todayStatus.checkInMessage}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleShowCheckInQR}
+                      disabled={!todayStatus.canCheckIn}
+                      className={`flex-1 py-3 px-6 rounded-lg font-semibold text-white transition-all ${
+                        todayStatus.canCheckIn
+                          ? 'bg-green-600 hover:bg-green-700 shadow-md hover:shadow-lg'
+                          : 'bg-gray-300 cursor-not-allowed'
+                      }`}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        <ClockIcon className="h-5 w-5" />
+                        Check-in
+                      </span>
+                    </button>
+                    
+                    <button
+                      onClick={handleShowCheckOutQR}
+                      disabled={!todayStatus.canCheckOut}
+                      className={`flex-1 py-3 px-6 rounded-lg font-semibold text-white transition-all ${
+                        todayStatus.canCheckOut
+                          ? 'bg-orange-600 hover:bg-orange-700 shadow-md hover:shadow-lg'
+                          : 'bg-gray-300 cursor-not-allowed'
+                      }`}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        <ClockIcon className="h-5 w-5" />
+                        Check-out
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Header with filters */}
+              <div className="card">
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Từ ngày</label>
+                    <input
+                      type="date"
+                      value={dateRange.startDate}
+                      onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Đến ngày</label>
+                    <input
+                      type="date"
+                      value={dateRange.endDate}
+                      onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <button
+                    onClick={fetchTimesheets}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors"
+                  >
+                    Lọc
+                  </button>
+                </div>
+              </div>
+
+              {/* Timesheets list */}
+              <div className="card">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Lịch sử chấm công</h3>
+                
+                {timesheetsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : timesheets.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ClockIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Chưa có dữ liệu chấm công</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ngày làm việc
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ca làm việc
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Giờ vào
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Giờ ra
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Đi muộn
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Về sớm
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Trạng thái
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {timesheets.map((ts, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {new Date(ts.work_date).toLocaleDateString('vi-VN')}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div>
+                                <div className="font-medium">{ts.shift_name}</div>
+                                <div className="text-xs text-gray-400">
+                                  {ts.start_time} - {ts.end_time}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {ts.check_in_time || '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {ts.check_out_time || '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              {ts.minutes_late > 0 ? (
+                                <span className="text-red-600 font-medium">{ts.minutes_late} phút</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              {ts.minutes_early > 0 ? (
+                                <span className="text-orange-600 font-medium">{ts.minutes_early} phút</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {ts.check_in_time && ts.check_out_time ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  <CheckCircleIcon className="h-4 w-4 mr-1" />
+                                  Hoàn thành
+                                </span>
+                              ) : ts.check_in_time ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  <ClockIcon className="h-4 w-4 mr-1" />
+                                  Đang làm
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                  <XCircleIcon className="h-4 w-4 mr-1" />
+                                  Chưa chấm
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -449,6 +764,108 @@ const EmployeeDashboard = () => {
           )}
         </div>
       </main>
+
+      {/* QR Code Modal */}
+      {showQRModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className={`p-6 rounded-t-2xl ${qrType === 'checkin' ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-orange-500 to-orange-600'}`}>
+              <div className="flex items-center justify-between text-white">
+                <h3 className="text-2xl font-bold">
+                  {qrType === 'checkin' ? '🟢 Check-in' : '🟠 Check-out'}
+                </h3>
+                <button
+                  onClick={() => setShowQRModal(false)}
+                  className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+                >
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
+              </div>
+              <p className="text-white text-sm mt-2 opacity-90">
+                Quét mã QR này để xác nhận {qrType === 'checkin' ? 'check-in' : 'check-out'}
+              </p>
+            </div>
+
+            <div className="p-8">
+              {/* Employee Info */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <UserCircleIcon className="h-8 w-8 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">{user?.full_name}</p>
+                    <p className="text-sm text-gray-500">{user?.employee_id}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-500">Ca làm việc:</span>
+                    <p className="font-medium text-gray-900">{todayStatus?.timesheet?.shift_name}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Thời gian:</span>
+                    <p className="font-medium text-gray-900">
+                      {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* QR Code */}
+              <div className="flex justify-center mb-6">
+                <div className="bg-white p-4 rounded-lg shadow-inner border-4 border-gray-100">
+                  <QRCodeSVG
+                    value={generateQRData()}
+                    size={220}
+                    level="H"
+                    includeMargin={true}
+                    bgColor="#ffffff"
+                    fgColor={qrType === 'checkin' ? '#16a34a' : '#ea580c'}
+                  />
+                </div>
+              </div>
+
+              {/* Action Info */}
+              <div className={`rounded-lg p-4 mb-6 ${qrType === 'checkin' ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'}`}>
+                <p className={`text-sm font-medium ${qrType === 'checkin' ? 'text-green-800' : 'text-orange-800'}`}>
+                  {qrType === 'checkin' 
+                    ? '✓ Quét mã này để xác nhận bạn đã có mặt tại nơi làm việc'
+                    : '✓ Quét mã này để xác nhận bạn đã kết thúc ca làm việc'}
+                </p>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowQRModal(false)}
+                  className="flex-1 px-4 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={qrType === 'checkin' ? handleCheckIn : handleCheckOut}
+                  disabled={qrType === 'checkin' ? checkInLoading : checkOutLoading}
+                  className={`flex-1 px-4 py-3 rounded-lg font-semibold text-white transition-colors ${
+                    qrType === 'checkin' 
+                      ? 'bg-green-600 hover:bg-green-700 disabled:bg-gray-300' 
+                      : 'bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300'
+                  } disabled:cursor-not-allowed`}
+                >
+                  {(qrType === 'checkin' ? checkInLoading : checkOutLoading) ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                      Đang xử lý...
+                    </span>
+                  ) : (
+                    <span>Xác nhận {qrType === 'checkin' ? 'Check-in' : 'Check-out'}</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Update Profile Modal */}
       {employeeData && (

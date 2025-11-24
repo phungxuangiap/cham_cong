@@ -61,6 +61,15 @@ const HRDashboard = () => {
   const [selectedWorkShift, setSelectedWorkShift] = useState<any>(null);
   const [workShiftSearchTerm, setWorkShiftSearchTerm] = useState('');
   const [filteredWorkShifts, setFilteredWorkShifts] = useState<any[]>([]);
+  
+  // Attendance states
+  const [departmentStats, setDepartmentStats] = useState<any[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [selectedDepartmentForDetails, setSelectedDepartmentForDetails] = useState<string | null>(null);
+  const [employeeDetails, setEmployeeDetails] = useState<any[]>([]);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  
   useEffect(()=>{
     console.log('Selected contract changed: ', selectedContract);
   }, [selectedContract])  
@@ -72,8 +81,19 @@ const HRDashboard = () => {
     } else if (activeTab === 'work-shifts') {
       fetchWorkShifts();
       fetchDepartments();
+    } else if (activeTab === 'attendance') {
+      fetchDepartmentStats();
+      if (!departments.length) {
+        fetchDepartments();
+      }
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      fetchDepartmentStats();
+    }
+  }, [selectedDate]);
 
   useEffect(() => {
     filterEmployees();
@@ -154,6 +174,31 @@ const HRDashboard = () => {
     });
 
     setFilteredWorkShifts(filtered);
+  };
+
+  const fetchDepartmentStats = async () => {
+    setStatsLoading(true);
+    try {
+      const response = await authService.getDepartmentTimesheetStats(selectedDate);
+      setDepartmentStats(response.data.stats);
+    } catch (error) {
+      console.error('Error fetching department stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const fetchEmployeeDetails = async (departmentId: string) => {
+    setDetailsLoading(true);
+    try {
+      const response = await authService.getDepartmentEmployeeDetails(departmentId, selectedDate);
+      setEmployeeDetails(response.data.employees);
+      setSelectedDepartmentForDetails(departmentId);
+    } catch (error) {
+      console.error('Error fetching employee details:', error);
+    } finally {
+      setDetailsLoading(false);
+    }
   };
 
   const handleDeleteWorkShift = async (shiftId: string) => {
@@ -266,7 +311,6 @@ const HRDashboard = () => {
     { id: 'contracts', name: 'Quản lý hợp đồng', icon: DocumentTextIcon },
     { id: 'work-shifts', name: 'Quản lý ca làm việc', icon: ClockIcon },
     { id: 'requests', name: 'Yêu cầu chờ duyệt', icon: DocumentTextIcon },
-    { id: 'leave', name: 'Lịch nghỉ phép', icon: CalendarIcon },
     { id: 'attendance', name: 'Chấm công', icon: ClockIcon },
   ];
 
@@ -945,9 +989,232 @@ const HRDashboard = () => {
           )}
 
           {activeTab === 'attendance' && (
-            <div className="card">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Báo cáo chấm công</h3>
-              <p className="text-gray-500">Chức năng đang phát triển...</p>
+            <div className="space-y-6">
+              {/* Date filter */}
+              <div className="card">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Ngày chấm công
+                    </label>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="text-sm text-gray-500 pt-6">
+                    Tổng {departmentStats.length} phòng ban
+                  </div>
+                </div>
+              </div>
+
+              {/* Department stats grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {statsLoading ? (
+                  <div className="col-span-full flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : departmentStats.length === 0 ? (
+                  <div className="col-span-full text-center py-12">
+                    <ClockIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Chưa có dữ liệu chấm công</p>
+                  </div>
+                ) : (
+                  departmentStats.map((dept) => (
+                    <div
+                      key={dept.department_id}
+                      className="card hover:shadow-lg transition-shadow cursor-pointer"
+                      onClick={() => fetchEmployeeDetails(dept.department_id)}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                            {dept.department_name}
+                          </h3>
+                          <p className="text-sm text-gray-500">{dept.department_id}</p>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center">
+                          <UserGroupIcon className="h-6 w-6 text-indigo-600" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Tổng nhân viên</span>
+                          <span className="text-lg font-bold text-gray-900">
+                            {dept.total_employees}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Đã check-in</span>
+                          <span className="text-lg font-semibold text-green-600">
+                            {dept.checked_in}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Đã check-out</span>
+                          <span className="text-lg font-semibold text-blue-600">
+                            {dept.checked_out}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">Chưa chấm</span>
+                          <span className="text-lg font-semibold text-gray-600">
+                            {dept.not_checked}
+                          </span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="pt-2">
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span>Tỷ lệ chấm công</span>
+                            <span>
+                              {dept.total_employees > 0
+                                ? Math.round((dept.checked_in / dept.total_employees) * 100)
+                                : 0}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-green-500 h-2 rounded-full transition-all"
+                              style={{
+                                width: `${
+                                  dept.total_employees > 0
+                                    ? (dept.checked_in / dept.total_employees) * 100
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Employee details modal/section */}
+              {selectedDepartmentForDetails && (
+                <div className="card">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-bold text-gray-900">
+                      Chi tiết nhân viên -{' '}
+                      {departmentStats.find((d) => d.department_id === selectedDepartmentForDetails)
+                        ?.department_name}
+                    </h3>
+                    <button
+                      onClick={() => setSelectedDepartmentForDetails(null)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <XMarkIcon className="h-6 w-6" />
+                    </button>
+                  </div>
+
+                  {detailsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Nhân viên
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Ca làm việc
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Check-in
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Check-out
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Đi muộn
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Về sớm
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Trạng thái
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {employeeDetails.map((emp) => (
+                            <tr key={emp.employee_id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {emp.full_name}
+                                </div>
+                                <div className="text-xs text-gray-500">{emp.employee_id}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {emp.shift_name ? (
+                                  <div>
+                                    <div>{emp.shift_name}</div>
+                                    <div className="text-xs text-gray-400">
+                                      {emp.start_time} - {emp.end_time}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {emp.check_in_time || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {emp.check_out_time || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                {emp.minutes_late > 0 ? (
+                                  <span className="text-red-600 font-medium">
+                                    {emp.minutes_late} phút
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                {emp.minutes_early > 0 ? (
+                                  <span className="text-orange-600 font-medium">
+                                    {emp.minutes_early} phút
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {emp.status === 'checked_out' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    Hoàn thành
+                                  </span>
+                                ) : emp.status === 'checked_in' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    Đang làm
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                    Chưa chấm
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

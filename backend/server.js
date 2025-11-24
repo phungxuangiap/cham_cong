@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./src/routes/auth.routes');
+const CronService = require('./services/cron.service');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -49,6 +50,9 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Database: ${process.env.DB_DATABASE}`);
+  
+  // Start cron jobs
+  CronService.startJobs();
 });
 
 module.exports = app;

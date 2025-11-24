@@ -146,6 +146,55 @@ const authService = {
     return apiClient.delete(`/auth/work-shift/${shiftId}`);
   },
 
+  // Cancel Pending Work Shift Update (Admin/HR)
+  cancelPendingWorkShift: async (shiftId: string) => {
+    return apiClient.delete(`/auth/work-shift/${shiftId}/pending`);
+  },
+
+  // ==================== DAILY TIMESHEET SERVICES ====================
+
+  // Get My Timesheets
+  getMyTimesheets: async (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return apiClient.get(`/auth/my-timesheets?${params.toString()}`);
+  },
+
+  // Get Department Timesheet Stats (HR/Admin)
+  getDepartmentTimesheetStats: async (date?: string) => {
+    const params = date ? `?date=${date}` : '';
+    return apiClient.get(`/auth/timesheets/department-stats${params}`);
+  },
+
+  // Get Department Employee Details (HR/Admin)
+  getDepartmentEmployeeDetails: async (departmentId: string, date?: string) => {
+    const params = date ? `?date=${date}` : '';
+    return apiClient.get(`/auth/timesheets/department/${departmentId}/employees${params}`);
+  },
+
+  // Manual Generate Timesheets (Admin only)
+  manualGenerateTimesheets: async (date?: string) => {
+    return apiClient.post('/auth/timesheets/generate', { date });
+  },
+
+  // ==================== ATTENDANCE SERVICES ====================
+
+  // User Check-in
+  userCheckIn: async () => {
+    return apiClient.post('/auth/attendance/check-in');
+  },
+
+  // User Check-out
+  userCheckOut: async () => {
+    return apiClient.post('/auth/attendance/check-out');
+  },
+
+  // Get Today's Attendance Status
+  getTodayAttendanceStatus: async () => {
+    return apiClient.get('/auth/attendance/today-status');
+  },
+
   // Logout
   logout: async () => {
     return apiClient.post('/auth/logout');
@@ -153,3 +202,4 @@ const authService = {
 };
 
 export default authService;
+
