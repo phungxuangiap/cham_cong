@@ -1,0 +1,2394 @@
+================================================================================
+                    ATTENDANCE SYSTEM API DOCUMENTATION
+================================================================================
+Base URL: http://localhost:5000
+Prefix: /auth
+Version: 1.0.0
+Last Updated: November 25, 2025
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. Authentication & Authorization
+2. Employee Management
+3. Contract Management
+4. Department Management
+5. Work Shift Management
+6. Daily Timesheet & Attendance
+7. Leave Request Management
+8. Overtime Request Management
+9. Cron Jobs & System Maintenance
+
+================================================================================
+AUTHENTICATION & AUTHORIZATION
+================================================================================
+
+All protected endpoints require an access token in the Authorization header:
+  Authorization: Bearer <access_token>
+
+Role-based access control:
+  - Admin: Full system access
+  - HR: Employee management, contracts, attendance, approvals
+  - Employee: Personal data, attendance, requests
+
+--------------------------------------------------------------------------------
+1.1 LOGIN
+--------------------------------------------------------------------------------
+POST /auth/login
+
+Description: Authenticate user and receive access & refresh tokens
+
+Mô tả chi tiết:
+  API này dùng để đăng nhập vào hệ thống. Sau khi đăng nhập thành công, hệ thống
+  sẽ trả về 2 loại token:
+  - Access Token: Dùng để xác thực các request tiếp theo (hiệu lực 1 giờ)
+  - Refresh Token: Dùng để lấy access token mới khi hết hạn (hiệu lực 7 ngày)
+
+Các trường hợp sử dụng:
+  1. Nhân viên đăng nhập để chấm công, xem lương, tạo yêu cầu nghỉ phép/tăng ca
+  2. HR đăng nhập để quản lý nhân viên, duyệt yêu cầu, xem báo cáo chấm công
+  3. Admin đăng nhập để quản lý toàn bộ hệ thống
+
+Lưu ý:
+  - Username và password phải chính xác
+  - Tài khoản phải ở trạng thái active
+  - Lưu trữ access token để dùng cho các request tiếp theo
+  - Lưu refresh token để làm mới access token khi hết hạn
+
+Request Body:
+{
+  "username": "string",
+  "password": "string"
+}
+
+Success Response (200):
+{
+  "message": "Đăng nhập thành công",
+  "accessToken": "jwt_token_string",
+  "refreshToken": "jwt_token_string",
+  "user": {
+    "employee_id": "uuid",
+    "username": "string",
+    "full_name": "string",
+    "role": "admin|hr|employee",
+    "personal_email": "email@example.com",
+    "company_email": "email@company.com"
+  }
+}
+
+Error Response (401):
+{
+  "message": "Sai tên đăng nhập hoặc mật khẩu"
+}
+
+--------------------------------------------------------------------------------
+1.2 REFRESH ACCESS TOKEN
+--------------------------------------------------------------------------------
+POST /auth/refresh-token
+
+Description: Get new access token using refresh token
+
+Mô tả chi tiết:
+  API này dùng để làm mới access token khi token cũ đã hết hạn (sau 1 giờ).
+  Thay vì phải đăng nhập lại, bạn có thể dùng refresh token để lấy access token mới.
+
+Các trường hợp sử dụng:
+  1. Access token hết hạn và bạn nhận được lỗi 401 Unauthorized
+  2. Trước khi access token hết hạn (có thể check thời gian expire)
+  3. Giữ cho người dùng luôn đăng nhập mà không cần nhập lại password
+
+Lưu ý:
+  - Refresh token có hiệu lực 7 ngày
+  - Sau 7 ngày, người dùng phải đăng nhập lại
+  - Lưu access token mới vào storage để dùng cho các request tiếp theo
+
+Request Body:
+{
+  "refreshToken": "jwt_token_string"
+}
+
+Success Response (200):
+{
+  "message": "Làm mới access token thành công",
+  "accessToken": "new_jwt_token_string"
+}
+
+--------------------------------------------------------------------------------
+1.3 LOGOUT
+--------------------------------------------------------------------------------
+POST /auth/logout
+
+Description: Logout user (invalidate tokens)
+
+Mô tả chi tiết:
+  API này dùng để đăng xuất khỏi hệ thống. Sau khi logout, các token sẽ bị vô hiệu hóa
+  và người dùng phải đăng nhập lại để sử dụng hệ thống.
+
+Các trường hợp sử dụng:
+  1. Người dùng muốn đăng xuất khỏi hệ thống
+  2. Bảo mật khi sử dụng máy tính chung
+  3. Chuyển đổi tài khoản (đăng xuất account này để đăng nhập account khác)
+
+Lưu ý:
+  - Xóa access token và refresh token khỏi storage sau khi logout
+  - Chuyển hướng người dùng về trang login
+  - Tokens sẽ không thể sử dụng được nữa sau khi logout
+
+Request Body: None
+
+Success Response (200):
+{
+  "message": "Đăng xuất thành công"
+}
+
+================================================================================
+2. EMPLOYEE MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 REGISTER EMPLOYEE
+--------------------------------------------------------------------------------
+POST /auth/employee-register
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Register new employee with account
+
+Mô tả chi tiết:
+  API này dùng để đăng ký nhân viên mới vào hệ thống, bao gồm cả thông tin cá nhân
+  và tạo luôn tài khoản đăng nhập. Đây là cách nhanh nhất để thêm nhân viên mới.
+
+Các trường hợp sử dụng:
+  1. Tuyển nhân viên mới và muốn tạo luôn tài khoản
+  2. Onboarding nhân viên - một bước tạo đầy đủ thông tin
+  3. HR/Admin muốn tạo nhanh nhân viên có thể đăng nhập ngay
+
+Lưu ý:
+  - Chỉ Admin hoặc HR mới có quyền đăng ký nhân viên mới
+  - Username phải unique (không trùng trong hệ thống)
+  - Email (personal và company) phải unique
+  - Phòng ban và vị trí phải tồn tại trong hệ thống
+  - Manager ID phải là ID của nhân viên đang active
+  - Password sẽ được mã hóa tự động
+
+Request Body:
+{
+  "fullName": "string",
+  "dateOfBirth": "YYYY-MM-DD",
+  "gender": "male|female|other",
+  "address": "string",
+  "phoneNumber": "string",
+  "personalEmail": "email@example.com",
+  "companyEmail": "email@company.com",
+  "departmentId": "uuid",
+  "positionId": "uuid",
+  "managerId": "uuid (optional)",
+  "username": "string",
+  "password": "string",
+  "role": "admin|hr|employee"
+}
+
+Success Response (201):
+{
+  "message": "Đăng ký nhân viên thành công",
+  "employee": {
+    "employee_id": "uuid",
+    "full_name": "string",
+    ...
+  }
+}
+
+--------------------------------------------------------------------------------
+2.2 CREATE ADMIN/HR ACCOUNT
+--------------------------------------------------------------------------------
+POST /auth/admin-create-account
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Create account for employee without account
+
+Mô tả chi tiết:
+  API này dùng để tạo tài khoản đăng nhập cho nhân viên đã có trong hệ thống
+  nhưng chưa có tài khoản. Hữu ích khi nhân viên được nhập vào hệ thống trước
+  (từ file Excel, database cũ) và cần tạo account sau.
+
+Các trường hợp sử dụng:
+  1. Nhân viên đã làm việc nhưng chưa có tài khoản đăng nhập
+  2. Import danh sách nhân viên từ hệ thống cũ, sau đó tạo account từng người
+  3. Nâng cấp quyền cho nhân viên (từ không có account lên Employee/HR/Admin)
+
+Lưu ý:
+  - Nhân viên phải tồn tại trong bảng EMPLOYEE (tìm bằng personal_email)
+  - Một nhân viên chỉ có thể có 1 tài khoản
+  - Username phải unique
+  - Admin có thể tạo account với bất kỳ role nào (admin/hr/employee)
+  - Mặc định tài khoản được tạo ở trạng thái active
+
+Request Body:
+{
+  "personalEmail": "email@example.com",
+  "username": "string",
+  "password": "string",
+  "userRole": "admin|hr|employee",
+  "status": "active|inactive (default: active)"
+}
+
+Success Response (201):
+{
+  "message": "Tạo tài khoản thành công",
+  "user": {
+    "employee_id": "uuid",
+    "username": "string",
+    "role": "string"
+  }
+}
+
+--------------------------------------------------------------------------------
+2.3 GET EMPLOYEE PROFILE
+--------------------------------------------------------------------------------
+GET /auth/profile/:employeeId
+
+Auth Required: No (but recommended)
+
+Description: Get employee profile by ID
+
+Mô tả chi tiết:
+  API này dùng để xem thông tin chi tiết của một nhân viên. Không bắt buộc
+  authentication nhưng nên dùng token để security tốt hơn.
+
+Các trường hợp sử dụng:
+  1. Nhân viên xem thông tin cá nhân của mình
+  2. HR xem thông tin nhân viên để cập nhật, quản lý
+  3. Manager xem thông tin nhân viên dưới quyền
+  4. Hiển thị profile trên dashboard
+
+Lưu ý:
+  - employeeId là UUID của nhân viên
+  - Trả về đầy đủ thông tin cá nhân, công việc, liên hệ
+  - Không trả về password và thông tin nhạy cảm khác
+  - Có thể dùng để validate employee tồn tại trong hệ thống
+
+Success Response (200):
+{
+  "message": "Lấy thông tin thành công",
+  "user": {
+    "employee_id": "uuid",
+    "full_name": "string",
+    "date_of_birth": "YYYY-MM-DD",
+    "gender": "string",
+    "address": "string",
+    "phone_number": "string",
+    "personal_email": "string",
+    "company_email": "string",
+    "status": "active|inactive",
+    "join_date": "YYYY-MM-DD",
+    "department_id": "uuid",
+    "position_id": "uuid",
+    "manager_id": "uuid"
+  }
+}
+
+--------------------------------------------------------------------------------
+2.4 GET ALL EMPLOYEES
+--------------------------------------------------------------------------------
+GET /auth/employees
+
+Auth Required: Yes
+
+Description: Get all employees with filters
+
+Mô tả chi tiết:
+  API này dùng để lấy danh sách tất cả nhân viên trong hệ thống với khả năng
+  lọc theo nhiều tiêu chí. Rất hữu ích cho các trang quản lý nhân viên.
+
+Các trường hợp sử dụng:
+  1. HR/Admin xem danh sách toàn bộ nhân viên
+  2. Lọc nhân viên theo phòng ban để quản lý
+  3. Tìm kiếm nhân viên theo tên, email, số điện thoại
+  4. Lọc nhân viên theo role (admin/hr/employee)
+  5. Lọc nhân viên đang active hoặc đã nghỉ việc
+  6. Export danh sách nhân viên
+
+Lưu ý:
+  - Có thể kết hợp nhiều filters cùng lúc
+  - Search hỗ trợ tìm kiếm gần đúng (LIKE %keyword%)
+  - Trả về thông tin tổng hợp (có cả tên phòng ban, chức vụ)
+  - Không giới hạn số lượng kết quả (cân nhắc pagination nếu có quá nhiều)
+
+Query Parameters:
+  - role: admin|hr|employee
+  - status: active|inactive
+  - departmentId: uuid
+  - search: string (search by name, email, phone)
+
+Success Response (200):
+{
+  "message": "Lấy danh sách nhân viên thành công",
+  "employees": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "department_name": "string",
+      "position_name": "string",
+      "role": "string",
+      "status": "string",
+      ...
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+2.5 UPDATE EMPLOYEE PROFILE
+--------------------------------------------------------------------------------
+PUT /auth/update-profile/:employeeId
+
+Auth Required: Yes
+
+Description: Update employee profile
+
+Mô tả chi tiết:
+  API này dùng để cập nhật thông tin nhân viên. Hỗ trợ cập nhật từng phần
+  (partial update) - chỉ cần gửi các trường muốn thay đổi.
+
+Các trường hợp sử dụng:
+  1. Nhân viên tự cập nhật thông tin cá nhân (địa chỉ, SĐT, email)
+  2. HR cập nhật thông tin công việc (phòng ban, vị trí, manager)
+  3. Cập nhật thông tin ngân hàng để nhận lương
+  4. Chuyển phòng ban cho nhân viên
+  5. Đổi trạng thái nhân viên (active/inactive)
+  6. Cập nhật thông tin sau khi thăng chức
+
+Lưu ý:
+  - Tất cả các trường đều optional - chỉ gửi những gì muốn thay đổi
+  - Admin/HR có thể cập nhật tất cả thông tin
+  - Employee chỉ nên cập nhật thông tin cá nhân của mình
+  - Khi đổi phòng ban, cần kiểm tra phòng ban mới tồn tại
+  - Khi đổi manager, manager mới phải là nhân viên active
+  - Email mới phải unique trong hệ thống
+
+Request Body:
+{
+  "fullName": "string (optional)",
+  "dateOfBirth": "YYYY-MM-DD (optional)",
+  "gender": "string (optional)",
+  "address": "string (optional)",
+  "phoneNumber": "string (optional)",
+  "personalEmail": "string (optional)",
+  "companyEmail": "string (optional)",
+  "bankAccountNumber": "string (optional)",
+  "bankName": "string (optional)",
+  "bankBranch": "string (optional)",
+  "departmentId": "uuid (optional)",
+  "positionId": "uuid (optional)",
+  "managerId": "uuid (optional)",
+  "status": "active|inactive (optional)"
+}
+
+Success Response (200):
+{
+  "message": "Cập nhật thông tin thành công",
+  "employee": { ... }
+}
+
+================================================================================
+3. CONTRACT MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 GET USER CONTRACT
+--------------------------------------------------------------------------------
+GET /auth/contract/:employeeId
+
+Auth Required: Yes
+
+Description: Get employee's contract
+
+Mô tả chi tiết:
+  API này dùng để xem thông tin hợp đồng lao động của nhân viên. Mỗi nhân viên
+  có thể có một hoặc nhiều hợp đồng theo thời gian.
+
+Các trường hợp sử dụng:
+  1. Nhân viên xem hợp đồng của mình (loại, thời hạn, ngày ký)
+  2. HR kiểm tra hợp đồng nhân viên để gia hạn hoặc chấm dứt
+  3. Kiểm tra hợp đồng sắp hết hạn để chuẩn bị gia hạn
+  4. Xem lịch sử các hợp đồng của nhân viên
+
+Lưu ý:
+  - Trả về hợp đồng hiện tại (active) của nhân viên
+  - Nếu nhân viên chưa có hợp đồng, trả về mảng rỗng
+  - Có thể có nhiều hợp đồng nếu nhân viên gia hạn nhiều lần
+  - Composite key: (employee_id, signing_date)
+
+Success Response (200):
+{
+  "message": "Lấy hợp đồng thành công",
+  "contract": {
+    "employee_id": "uuid",
+    "signing_date": "YYYY-MM-DD",
+    "contract_type": "string",
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD"
+  }
+}
+
+--------------------------------------------------------------------------------
+3.2 CREATE CONTRACT
+--------------------------------------------------------------------------------
+POST /auth/contract
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Create new contract for employee
+
+Mô tả chi tiết:
+  API này dùng để tạo hợp đồng lao động mới cho nhân viên. Thường được dùng khi
+  nhân viên mới vào làm hoặc khi gia hạn hợp đồng.
+
+Các trường hợp sử dụng:
+  1. Tạo hợp đồng cho nhân viên mới được tuyển dụng
+  2. Gia hạn hợp đồng cho nhân viên hiện tại (tạo hợp đồng mới)
+  3. Chuyển đổi loại hợp đồng (thử việc -> chính thức)
+  4. Tạo phụ lục hợp đồng
+
+Các loại hợp đồng thường gặp:
+  - Hợp đồng thử việc (2-3 tháng)
+  - Hợp đồng xác định thời hạn (1-3 năm)
+  - Hợp đồng không xác định thời hạn
+  - Hợp đồng theo dự án
+  - Hợp đồng part-time
+
+Lưu ý:
+  - Chỉ Admin/HR mới có quyền tạo hợp đồng
+  - Nhân viên phải tồn tại trong hệ thống
+  - Ngày bắt đầu phải <= ngày kết thúc
+  - Nếu tạo hợp đồng mới với cùng signing_date, sẽ bị lỗi (composite key)
+  - Nên kiểm tra hợp đồng cũ trước khi tạo mới
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "signingDate": "YYYY-MM-DD",
+  "contractType": "string",
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD"
+}
+
+Success Response (201):
+{
+  "message": "Tạo hợp đồng thành công",
+  "contract": { ... }
+}
+
+--------------------------------------------------------------------------------
+3.3 GET ALL CONTRACTS
+--------------------------------------------------------------------------------
+GET /auth/contracts
+
+Auth Required: Yes
+
+Description: Get all contracts
+
+Mô tả chi tiết:
+  API này dùng để lấy danh sách tất cả hợp đồng trong hệ thống với khả năng
+  lọc theo nhân viên hoặc loại hợp đồng.
+
+Các trường hợp sử dụng:
+  1. HR xem danh sách toàn bộ hợp đồng trong công ty
+  2. Lọc hợp đồng theo loại để thống kê (bao nhiêu HĐ thử việc, chính thức)
+  3. Tìm tất cả hợp đồng của một nhân viên
+  4. Kiểm tra hợp đồng sắp hết hạn (filter theo end_date)
+  5. Export danh sách hợp đồng để báo cáo
+
+Lưu ý:
+  - Trả về thông tin tổng hợp (có tên nhân viên, phòng ban)
+  - Có thể lọc theo nhiều tiêu chí
+  - Hữu ích để xem overview tất cả hợp đồng
+  - Nên thêm pagination nếu có quá nhiều hợp đồng
+
+Query Parameters:
+  - employeeId: uuid (optional)
+  - contractType: string (optional)
+
+Success Response (200):
+{
+  "message": "Lấy danh sách hợp đồng thành công",
+  "contracts": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "department_name": "string",
+      "signing_date": "YYYY-MM-DD",
+      "contract_type": "string",
+      ...
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+3.4 UPDATE CONTRACT
+--------------------------------------------------------------------------------
+PUT /auth/contract
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Update existing contract
+
+Mô tả chi tiết:
+  API này dùng để cập nhật thông tin hợp đồng đã tồn tại. Do hợp đồng dùng
+  composite key (employee_id, signing_date), cần cung cấp cả hai để xác định
+  hợp đồng cần sửa.
+
+Các trường hợp sử dụng:
+  1. Sửa lỗi thông tin hợp đồng (nhập sai ngày, loại hợp đồng)
+  2. Gia hạn hợp đồng (thay đổi end_date)
+  3. Cập nhật ngày ký hợp đồng
+  4. Đổi loại hợp đồng (nếu được phép)
+  5. Điều chỉnh thời gian có hiệu lực của hợp đồng
+
+Lưu ý:
+  - Phải cung cấp oldSigningDate để xác định hợp đồng cần sửa
+  - Có thể cập nhật signing_date (tạo key mới)
+  - Các trường khác optional - chỉ gửi những gì muốn thay đổi
+  - Nếu đổi signing_date, hợp đồng sẽ có composite key mới
+  - Validate start_date <= end_date
+  - Chỉ Admin/HR có quyền cập nhật hợp đồng
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "oldSigningDate": "YYYY-MM-DD",
+  "signingDate": "YYYY-MM-DD (optional)",
+  "contractType": "string (optional)",
+  "startDate": "YYYY-MM-DD (optional)",
+  "endDate": "YYYY-MM-DD (optional)"
+}
+
+Success Response (200):
+{
+  "message": "Cập nhật hợp đồng thành công",
+  "contract": { ... }
+}
+
+================================================================================
+4. DEPARTMENT MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 GET ALL DEPARTMENTS
+--------------------------------------------------------------------------------
+GET /auth/departments
+
+Auth Required: Yes
+
+Description: Get all departments with hierarchy
+
+Mô tả chi tiết:
+  API này dùng để lấy danh sách tất cả phòng ban trong công ty với thông tin
+  cấu trúc phân cấp (parent-child relationship).
+
+Các trường hợp sử dụng:
+  1. Hiển thị sơ đồ tổ chức công ty (org chart)
+  2. Dropdown chọn phòng ban khi tạo/sửa nhân viên
+  3. Quản lý cấu trúc tổ chức
+  4. Thống kê số lượng nhân viên theo phòng ban
+  5. Xác định manager của từng phòng ban
+
+Lưu ý:
+  - Trả về cả phòng ban cha và phòng ban con
+  - Có thông tin manager và số lượng nhân viên
+  - parent_department_id = NULL nếu là phòng ban cấp cao nhất
+  - Dùng employee_count để kiểm tra trước khi xóa phòng ban
+
+Success Response (200):
+{
+  "message": "Lấy danh sách phòng ban thành công",
+  "departments": [
+    {
+      "department_id": "uuid",
+      "department_name": "string",
+      "description": "string",
+      "parent_department_id": "uuid",
+      "manager_id": "uuid",
+      "manager_name": "string",
+      "employee_count": 10
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+4.2 GET DEPARTMENT BY ID
+--------------------------------------------------------------------------------
+GET /auth/department/:departmentId
+
+Auth Required: Yes
+
+Description: Get department details with employees
+
+Mô tả chi tiết:
+  API này dùng để xem thông tin chi tiết của một phòng ban, bao gồm cả
+  danh sách nhân viên thuộc phòng ban đó.
+
+Các trường hợp sử dụng:
+  1. Xem chi tiết một phòng ban cụ thể
+  2. Xem danh sách toàn bộ nhân viên trong phòng ban
+  3. Kiểm tra manager của phòng ban
+  4. Kiểm tra phòng ban cha (nếu có)
+  5. Phân tích cơ cấu nhân sự theo phòng ban
+
+Lưu ý:
+  - Trả về cả thông tin phòng ban và danh sách nhân viên
+  - Employee list bao gồm tên, chức vụ, trạng thái
+  - Hữu ích cho trang Department Details
+  - Có thể dùng để kiểm tra phòng ban có rỗng không trước khi xóa
+
+Success Response (200):
+{
+  "message": "Lấy thông tin phòng ban thành công",
+  "department": {
+    "department_id": "uuid",
+    "department_name": "string",
+    "description": "string",
+    "parent_department_id": "uuid",
+    "manager_id": "uuid",
+    "manager_name": "string"
+  },
+  "employees": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "position_name": "string",
+      "status": "string"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+4.3 CREATE DEPARTMENT
+--------------------------------------------------------------------------------
+POST /auth/department
+
+Auth Required: Yes (Admin only)
+
+Description: Create new department
+
+Mô tả chi tiết:
+  API này dùng để tạo phòng ban mới trong công ty. Chỉ Admin mới có quyền
+  tạo phòng ban mới vì đây là thao tác ảnh hưởng đến cấu trúc tổ chức.
+
+Các trường hợp sử dụng:
+  1. Công ty mở rộng, thành lập phòng ban mới
+  2. Tách phòng ban lớn thành các phòng ban nhỏ
+  3. Tạo phòng ban con thuộc phòng ban cha
+  4. Cấu trúc lại tổ chức công ty
+
+Ví dụ cấu trúc:
+  - Công ty (parent = NULL)
+    - Phòng Kỹ Thuật (parent = Công ty)
+      - Team Backend (parent = Phòng Kỹ Thuật)
+      - Team Frontend (parent = Phòng Kỹ Thuật)
+    - Phòng Nhân Sự (parent = Công ty)
+    - Phòng Marketing (parent = Công ty)
+
+Lưu ý:
+  - departmentId phải unique (thường dùng mã phòng ban: IT, HR, MKT)
+  - departmentName nên rõ ràng, dễ hiểu
+  - parentDepartmentId phải tồn tại nếu cung cấp
+  - managerId phải là nhân viên active
+  - Một nhân viên có thể làm manager nhiều phòng ban
+
+Request Body:
+{
+  "departmentId": "string",
+  "departmentName": "string",
+  "description": "string (optional)",
+  "parentDepartmentId": "uuid (optional)",
+  "managerId": "uuid (optional)"
+}
+
+Success Response (201):
+{
+  "message": "Tạo phòng ban thành công",
+  "department": { ... }
+}
+
+--------------------------------------------------------------------------------
+4.4 UPDATE DEPARTMENT
+--------------------------------------------------------------------------------
+PUT /auth/department/:departmentId
+
+Auth Required: Yes (Admin only)
+
+Description: Update department information
+
+Mô tả chi tiết:
+  API này dùng để cập nhật thông tin phòng ban. Hỗ trợ partial update -
+  chỉ cần gửi các trường muốn thay đổi.
+
+Các trường hợp sử dụng:
+  1. Đổi tên phòng ban (rebrand, cấu trúc lại)
+  2. Thay đổi manager của phòng ban
+  3. Cập nhật mô tả phòng ban
+  4. Thay đổi phòng ban cha (tái cấu trúc)
+  5. Thêm/sửa mô tả nhiệm vụ, chức năng của phòng ban
+
+Lưu ý:
+  - departmentId trong URL không thể thay đổi (primary key)
+  - Tất cả trường đều optional
+  - Manager mới phải là nhân viên active
+  - Không được tạo vòng lặp trong parent-child (A -> B -> A)
+  - Nên kiểm tra nhân viên trước khi đổi parent (tránh ả nh hưởng lớn)
+
+Request Body:
+{
+  "departmentName": "string (optional)",
+  "description": "string (optional)",
+  "parentDepartmentId": "uuid (optional)",
+  "managerId": "uuid (optional)"
+}
+
+Success Response (200):
+{
+  "message": "Cập nhật phòng ban thành công",
+  "department": { ... }
+}
+
+--------------------------------------------------------------------------------
+4.5 DELETE DEPARTMENT
+--------------------------------------------------------------------------------
+DELETE /auth/department/:departmentId
+
+Auth Required: Yes (Admin only)
+
+Description: Delete department (must be empty or transfer employees first)
+
+Mô tả chi tiết:
+  API này dùng để xóa phòng ban khỏi hệ thống. Phòng ban phải rỗng
+  (không có nhân viên) mới có thể xóa.
+
+Các trường hợp sử dụng:
+  1. Giải thể phòng ban không còn hoạt động
+  2. Gộp phòng ban (sau khi chuyển nhân viên sang phòng khác)
+  3. Sửa lỗi khi tạo nhầm phòng ban
+  4. Cấu trúc lại tổ chức công ty
+
+Quy trình xóa phòng ban:
+  1. Kiểm tra số lượng nhân viên trong phòng ban (GET /auth/department/:id)
+  2. Nếu có nhân viên, chuyển họ sang phòng ban khác (PUT /auth/update-profile)
+  3. Sau khi phòng ban rỗng, gọi API xóa (DELETE /auth/department/:id)
+
+Lưu ý:
+  - Phòng ban phải không có nhân viên mới xóa được
+  - Nếu phòng ban có phòng ban con, cần xóa phòng con trước
+  - Xóa phòng ban sẽ xóa cả Work Shift liên quan (nếu có)
+  - Thao tác không thể hoàn tác, hãy cẩn thận
+  - Nên hiển confirm dialog trước khi xóa
+
+Success Response (200):
+{
+  "message": "Xóa phòng ban thành công"
+}
+
+Error Response (400):
+{
+  "message": "Phòng ban còn nhân viên, vui lòng chuyển nhân viên trước"
+}
+
+================================================================================
+5. WORK SHIFT MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 GET ALL WORK SHIFTS
+--------------------------------------------------------------------------------
+GET /auth/work-shifts
+
+Auth Required: Yes
+
+Description: Get all work shifts
+
+Mô tả chi tiết:
+  API này dùng để lấy danh sách tất cả ca làm việc trong hệ thống.
+  Mỗi phòng ban có một ca làm việc riêng, và có thể có thay đổi chờ áp dụng.
+
+Các trường hợp sử dụng:
+  1. Xem danh sách toàn bộ ca làm việc của công ty
+  2. Kiểm tra ca làm việc hiện tại và ca sắp thay đổi
+  3. Quản lý thời gian làm việc của các phòng ban
+  4. Kiểm tra pending updates (thay đổi chưa áp dụng)
+
+Thông tin trả về:
+  - Ca hiện tại: shift_name, start_time, end_time, max_late_time
+  - Ca chờ áp dụng: pending_shift_name, pending_start_time, pending_end_time
+  - Ngày có hiệu lực: pending_effective_date
+
+Lưu ý:
+  - Mỗi department chỉ có 1 work shift
+  - Nếu có pending fields, nghĩa là đang chờ thay đổi
+  - Pending changes sẽ tự động áp dụng vào lúc 00:01 ngày effective_date
+  - max_late_time: thời gian muộn tối đa chấp nhận
+
+Success Response (200):
+{
+  "message": "Lấy danh sách ca làm việc thành công",
+  "workShifts": [
+    {
+      "shift_id": "string",
+      "shift_name": "string",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "max_late_time": "HH:MM:SS",
+      "department_id": "uuid",
+      "department_name": "string",
+      "pending_shift_name": "string",
+      "pending_start_time": "HH:MM:SS",
+      "pending_end_time": "HH:MM:SS",
+      "pending_effective_date": "YYYY-MM-DD"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+5.2 GET WORK SHIFT BY ID
+--------------------------------------------------------------------------------
+GET /auth/work-shift/:shiftId
+
+Auth Required: Yes
+
+Description: Get work shift details
+
+Success Response (200):
+{
+  "message": "Lấy thông tin ca làm việc thành công",
+  "workShift": { ... }
+}
+
+--------------------------------------------------------------------------------
+5.3 GET WORK SHIFTS BY DEPARTMENT
+--------------------------------------------------------------------------------
+GET /auth/work-shifts/department/:departmentId
+
+Auth Required: Yes
+
+Description: Get work shift for specific department
+
+Success Response (200):
+{
+  "message": "Lấy ca làm việc theo phòng ban thành công",
+  "workShift": { ... }
+}
+
+--------------------------------------------------------------------------------
+5.4 CREATE WORK SHIFT
+--------------------------------------------------------------------------------
+POST /auth/work-shift
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Create new work shift for department
+
+Mô tả chi tiết:
+  API này dùng để tạo ca làm việc mới cho một phòng ban. Mỗi phòng ban
+  chỉ có một ca làm việc, vì vậy trước khi tạo cần kiểm tra phòng ban đó
+  đã có ca chưa.
+
+Các trường hợp sử dụng:
+  1. Tạo ca làm việc cho phòng ban mới
+  2. Thiết lập thời gian làm việc ban đầu
+  3. Phòng ban chưa có ca, cần tạo mới
+
+Ví dụ các loại ca:
+  - Ca hành chính: 08:00 - 17:00 (max late: 08:15)
+  - Ca sáng: 06:00 - 14:00 (max late: 06:10)
+  - Ca chiều: 14:00 - 22:00 (max late: 14:10)
+  - Ca đêm: 22:00 - 06:00 (max late: 22:10)
+  - Ca linh hoạt: 09:00 - 18:00 (max late: 09:30)
+
+Lưu ý:
+  - shiftId phải unique (ví dụ: SHIFT_IT, SHIFT_HR)
+  - Mỗi department chỉ có 1 work shift
+  - Validate start_time < end_time
+  - max_late_time thường lớn hơn start_time 10-15 phút
+  - Thời gian dùng định dạng HH:MM:SS (ví dụ: 08:00:00)
+  - Department phải tồn tại trong hệ thống
+
+Request Body:
+{
+  "shiftId": "string",
+  "shiftName": "string",
+  "startTime": "HH:MM:SS",
+  "endTime": "HH:MM:SS",
+  "maxLateTime": "HH:MM:SS",
+  "departmentId": "uuid"
+}
+
+Success Response (201):
+{
+  "message": "Tạo ca làm việc thành công",
+  "workShift": { ... }
+}
+
+--------------------------------------------------------------------------------
+5.5 UPDATE WORK SHIFT (Simplified Version Control)
+--------------------------------------------------------------------------------
+PUT /auth/work-shift/:shiftId
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Update work shift with effective date (pending update)
+
+Mô tả chi tiết:
+  API này sử dụng Simplified Version Control - thay đổi không áp dụng ngay
+  mà được lưu vào pending fields và tự động áp dụng vào ngày effective_date.
+  Điều này giúp quản lý thay đổi ca làm việc mà không ảnh hưởng đến chấm công hiện tại.
+
+Các trường hợp sử dụng:
+  1. Thay đổi giờ làm việc từ tháng sau
+  2. Điều chỉnh ca làm việc theo mùa (hè/đông)
+  3. Thay đổi thời gian muộn tối đa
+  4. Cập nhật tên ca làm việc
+  5. Lên kế hoạch thay đổi thời gian làm việc trước
+
+Cơ chế hoạt động:
+  1. Gửi request cập nhật với effective_date (ví dụ: 2025-12-01)
+  2. Thay đổi được lưu vào pending_* fields
+  3. Ca hiện tại vẫn giữ nguyên cho đến ngày effective_date
+  4. Vào lúc 00:01 ngày 2025-12-01, cron job tự động:
+     - Sao chép pending fields sang active fields
+     - Xóa pending fields
+  5. Ca mới bắt đầu áp dụng từ ngày đó
+
+Lưu ý:
+  - effectiveDate là bắt buộc, thường là ngày trong tương lai
+  - Có thể hủy thay đổi bằng API DELETE /auth/work-shift/:shiftId/pending
+  - Chỉ có 1 pending update tại một thời điểm
+  - Thay đổi mới sẽ ghi đè thay đổi cũ (nếu có)
+  - Validate start_time < end_time cho pending values
+
+Request Body:
+{
+  "shiftName": "string (optional)",
+  "startTime": "HH:MM:SS (optional)",
+  "endTime": "HH:MM:SS (optional)",
+  "maxLateTime": "HH:MM:SS (optional)",
+  "effectiveDate": "YYYY-MM-DD"
+}
+
+Success Response (200):
+{
+  "message": "Cập nhật ca làm việc thành công (có hiệu lực từ YYYY-MM-DD)",
+  "workShift": {
+    "shift_id": "string",
+    "current": {
+      "shift_name": "string",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS"
+    },
+    "pending": {
+      "shift_name": "string",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "effective_date": "YYYY-MM-DD"
+    }
+  }
+}
+
+Note: Changes are stored in pending fields and automatically applied at 00:01 on effective date by cron job.
+
+--------------------------------------------------------------------------------
+5.6 DELETE WORK SHIFT
+--------------------------------------------------------------------------------
+DELETE /auth/work-shift/:shiftId
+
+Auth Required: Yes (Admin only)
+
+Description: Delete work shift
+
+Success Response (200):
+{
+  "message": "Xóa ca làm việc thành công"
+}
+
+--------------------------------------------------------------------------------
+5.7 CANCEL PENDING WORK SHIFT UPDATE
+--------------------------------------------------------------------------------
+DELETE /auth/work-shift/:shiftId/pending
+
+Auth Required: Yes (Admin/HR only)
+
+Description: Cancel pending work shift update
+
+Success Response (200):
+{
+  "message": "Hủy thay đổi ca làm việc thành công",
+  "workShift": { ... }
+}
+
+================================================================================
+6. DAILY TIMESHEET & ATTENDANCE
+================================================================================
+
+--------------------------------------------------------------------------------
+6.1 GET MY TIMESHEETS
+--------------------------------------------------------------------------------
+GET /auth/my-timesheets
+
+Auth Required: Yes
+
+Description: Get employee's own timesheets
+
+Mô tả chi tiết:
+  API này dùng để nhân viên xem lịch sử chấm công của bản thân.
+  Có thể lọc theo khoảng thời gian để xem bảng chấm công tháng, tuần.
+
+Các trường hợp sử dụng:
+  1. Nhân viên xem bảng chấm công của mình
+  2. Kiểm tra số ngày đi làm trong tháng
+  3. Xem số lần đi muộn, về sớm
+  4. Kiểm tra giờ check-in, check-out hàng ngày
+  5. Chuẩn bị dữ liệu cho báo cáo, khíu nại
+  6. Xem timesheet tháng trước để so sánh
+
+Thông tin trả về:
+  - work_date: Ngày làm việc
+  - shift info: Tên ca, giờ bắt đầu/kết thúc
+  - check_in_time, check_out_time: Giờ chấm công thực tế
+  - minutes_late: Số phút đi muộn
+  - minutes_early: Số phút về sớm
+  - notes: Ghi chú (auto checkout, nghỉ phép, etc.)
+
+Lưu ý:
+  - Không có startDate/endDate sẽ trả về tất cả timesheet
+  - Dùng filter để giới hạn kết quả (ví dụ: 30 ngày gần nhất)
+  - minutes_late > 0 nghĩa là đi muộn
+  - minutes_early > 0 nghĩa là về sớm
+  - check_in = NULL nghĩa là chưa check-in hoặc nghỉ
+
+Query Parameters:
+  - startDate: YYYY-MM-DD (optional)
+  - endDate: YYYY-MM-DD (optional)
+
+Success Response (200):
+{
+  "message": "Lấy bảng chấm công thành công",
+  "timesheets": [
+    {
+      "employee_id": "uuid",
+      "work_date": "YYYY-MM-DD",
+      "shift_id": "string",
+      "shift_name": "string",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "check_in_time": "HH:MM:SS",
+      "check_out_time": "HH:MM:SS",
+      "minutes_late": 0,
+      "minutes_early": 0,
+      "notes": "string"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+6.2 GET DEPARTMENT TIMESHEET STATS
+--------------------------------------------------------------------------------
+GET /auth/timesheets/department-stats
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get attendance statistics by department for specific date
+
+Mô tả chi tiết:
+  API này dùng để xem thống kê chấm công theo phòng ban cho một ngày cụ thể.
+  Rất hữu ích cho HR/Admin để giám sát tình hình đi làm của nhân viên.
+
+Các trường hợp sử dụng:
+  1. HR kiểm tra tỉ lệ đi làm của toàn công ty hôm nay
+  2. So sánh tình hình chấm công giữa các phòng ban
+  3. Tìm phòng ban có tỉ lệ đi muộn cao
+  4. Thống kê số người nghỉ phép hôm nay
+  5. Dashboard Overview - hiển thị overview nhanh
+  6. Báo cáo hàng ngày cho Ban Giám Đốc
+
+Thống kê bao gồm:
+  - total_employees: Tổng số nhân viên trong phòng ban
+  - checked_in: Số người đã check-in
+  - not_checked_in: Số người chưa check-in
+  - late: Số người đi muộn
+  - on_leave: Số người nghỉ phép (approved)
+
+Lưu ý:
+  - date là bắt buộc (YYYY-MM-DD)
+  - Thường dùng với date = hôm nay để xem real-time
+  - Có thể xem ngày quá khứ để phân tích xu hướng
+  - Tỉ lệ attendance = checked_in / (total_employees - on_leave)
+  - Tỉ lệ late = late / checked_in
+
+Query Parameters:
+  - date: YYYY-MM-DD (required)
+
+Success Response (200):
+{
+  "message": "Lấy thống kê chấm công thành công",
+  "date": "YYYY-MM-DD",
+  "stats": [
+    {
+      "department_id": "uuid",
+      "department_name": "string",
+      "total_employees": 50,
+      "checked_in": 45,
+      "not_checked_in": 5,
+      "late": 3,
+      "on_leave": 2
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+6.3 GET DEPARTMENT EMPLOYEE DETAILS
+--------------------------------------------------------------------------------
+GET /auth/timesheets/department/:departmentId/employees
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get detailed attendance for all employees in department
+
+Query Parameters:
+  - date: YYYY-MM-DD (required)
+
+Success Response (200):
+{
+  "message": "Lấy chi tiết chấm công thành công",
+  "date": "YYYY-MM-DD",
+  "department": {
+    "department_id": "uuid",
+    "department_name": "string"
+  },
+  "employees": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "shift_name": "string",
+      "check_in_time": "HH:MM:SS",
+      "check_out_time": "HH:MM:SS",
+      "minutes_late": 0,
+      "status": "present|late|absent|on_leave"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+6.4 MANUAL GENERATE TIMESHEETS
+--------------------------------------------------------------------------------
+POST /auth/timesheets/generate
+
+Auth Required: Yes (Admin only)
+
+Description: Manually trigger timesheet generation for specific date
+
+Request Body:
+{
+  "date": "YYYY-MM-DD (optional, defaults to today)"
+}
+
+Success Response (200):
+{
+  "message": "Tạo bảng chấm công thành công",
+  "date": "YYYY-MM-DD",
+  "results": {
+    "created": 50,
+    "skipped": 5,
+    "errors": 0
+  }
+}
+
+--------------------------------------------------------------------------------
+6.5 USER CHECK-IN
+--------------------------------------------------------------------------------
+POST /auth/attendance/check-in
+
+Auth Required: Yes
+
+Description: Employee check-in for the day
+
+Mô tả chi tiết:
+  API này dùng để nhân viên check-in khi đến công ty. Hệ thống tự động
+  ghi nhận thời gian và tính toán số phút đi muộn (nếu có).
+
+Các trường hợp sử dụng:
+  1. Nhân viên check-in khi vừa đến công ty
+  2. Chấm công bằng điện thoại/máy tính
+  3. Ghi nhận thời gian bắt đầu làm việc
+
+Quy trình check-in:
+  1. Nhân viên nhấn nút "Check-in" trên app
+  2. Hệ thống lấy thời gian hiện tại
+  3. So sánh với giờ bắt đầu ca (start_time)
+  4. Tính toán minutes_late (nếu check-in sau start_time)
+  5. Cập nhật timesheet của ngày hôm đó
+  6. Trả về thông báo thành công và số phút muộn (nếu có)
+
+Tính toán muộn:
+  - Nếu check_in_time <= shift start_time: Không muộn (minutes_late = 0)
+  - Nếu check_in_time <= max_late_time: Muộn chấp nhận được
+  - Nếu check_in_time > max_late_time: Muộn quá giờ
+
+Lưu ý:
+  - Mỗi ngày chỉ check-in được 1 lần
+  - Nếu đã check-in, gọi lại sẽ báo lỗi
+  - Timesheet phải được tạo trước (tự động tạo bởi cron 00:01)
+  - Check-in chỉ cập nhật check_in_time và minutes_late
+  - Không cần gửi employee_id (lấy từ token)
+
+Request Body: None (uses logged-in employee_id)
+
+Success Response (200):
+{
+  "message": "Check-in thành công",
+  "timesheet": {
+    "employee_id": "uuid",
+    "work_date": "YYYY-MM-DD",
+    "check_in_time": "HH:MM:SS",
+    "shift_start_time": "HH:MM:SS",
+    "minutes_late": 0
+  }
+}
+
+Error Response (400):
+{
+  "message": "Bạn đã check-in rồi"
+}
+
+--------------------------------------------------------------------------------
+6.6 USER CHECK-OUT
+--------------------------------------------------------------------------------
+POST /auth/attendance/check-out
+
+Auth Required: Yes
+
+Description: Employee check-out for the day
+
+Mô tả chi tiết:
+  API này dùng để nhân viên check-out khi rời công ty. Hệ thống ghi nhận
+  thời gian và tính toán số phút về sớm (nếu có).
+
+Các trường hợp sử dụng:
+  1. Nhân viên check-out khi rời công ty
+  2. Kết thúc ngày làm việc
+  3. Ghi nhận thời gian rời công ty
+
+Quy trình check-out:
+  1. Nhân viên nhấn nút "Check-out" trên app
+  2. Hệ thống kiểm tra đã check-in chưa
+  3. Lấy thời gian hiện tại
+  4. So sánh với giờ kết thúc ca (end_time)
+  5. Tính toán minutes_early (nếu check-out trước end_time)
+  6. Cập nhật timesheet
+  7. Trả về thông báo và thông tin làm việc trong ngày
+
+Tính toán về sớm:
+  - Nếu check_out_time >= shift end_time: Không về sớm (minutes_early = 0)
+  - Nếu check_out_time < shift end_time: Về sớm (tính số phút)
+
+Auto checkout:
+  - Nếu quên không check-out, cron job sẽ tự động checkout vào 00:01 ngày hôm sau
+  - Thời gian auto checkout = shift end_time
+  - Ghi chú: "Auto checkout by system"
+
+Lưu ý:
+  - Phải check-in trước mới check-out được
+  - Mỗi ngày chỉ check-out được 1 lần
+  - Nếu đã check-out, gọi lại sẽ báo lỗi
+  - Check-out cập nhật check_out_time và minutes_early
+  - Không cần gửi employee_id (lấy từ token)
+
+Request Body: None (uses logged-in employee_id)
+
+Success Response (200):
+{
+  "message": "Check-out thành công",
+  "timesheet": {
+    "employee_id": "uuid",
+    "work_date": "YYYY-MM-DD",
+    "check_in_time": "HH:MM:SS",
+    "check_out_time": "HH:MM:SS",
+    "minutes_early": 0
+  }
+}
+
+Error Response (400):
+{
+  "message": "Bạn chưa check-in"
+}
+
+--------------------------------------------------------------------------------
+6.7 GET TODAY'S ATTENDANCE STATUS
+--------------------------------------------------------------------------------
+GET /auth/attendance/today-status
+
+Auth Required: Yes
+
+Description: Get employee's attendance status for today
+
+Mô tả chi tiết:
+  API này dùng để kiểm tra trạng thái chấm công của nhân viên trong ngày hôm nay.
+  Rất hữu ích để hiển thị trạng thái trên dashboard và ẩn/hiện nút check-in/out.
+
+Các trường hợp sử dụng:
+  1. Kiểm tra đã check-in hôm nay chưa
+  2. Kiểm tra đã check-out hôm nay chưa
+  3. Hiển thị thông tin ca làm việc hôm nay
+  4. Hiển thị giờ check-in thực tế
+  5. Hiển/ẩn nút Check-in hoặc Check-out
+  6. Thông báo nếu đi muộn
+
+Logic hiển thị button:
+  - Chưa check-in (hasCheckedIn = false): Hiển nút "Check-in"
+  - Đã check-in, chưa check-out: Hiển nút "Check-out"
+  - Đã check-out: Hiển thông báo "Bạn đã hoàn thành chấm công hôm nay"
+
+Thông tin hữu ích:
+  - shift_name, start_time, end_time: Thông tin ca làm việc
+  - check_in_time: Giờ check-in thực tế (nếu đã check-in)
+  - check_out_time: Giờ check-out thực tế (nếu đã check-out)
+  - minutes_late: Số phút muộn (nếu có)
+
+Lưu ý:
+  - Gọi API này khi load dashboard/attendance page
+  - Có thể polling mỗi vài giây để cập nhật real-time
+  - Nếu timesheet chưa được tạo, trả về status rỗng
+  - Dùng để validate trước khi gọi API check-in/out
+
+Success Response (200):
+{
+  "message": "Lấy trạng thái chấm công thành công",
+  "status": {
+    "hasCheckedIn": true,
+    "hasCheckedOut": false,
+    "timesheet": {
+      "work_date": "YYYY-MM-DD",
+      "shift_name": "string",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "check_in_time": "HH:MM:SS",
+      "check_out_time": null,
+      "minutes_late": 0
+    }
+  }
+}
+
+================================================================================
+7. LEAVE REQUEST MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+7.1 CREATE LEAVE REQUEST
+--------------------------------------------------------------------------------
+POST /auth/leave-request
+
+Auth Required: Yes
+
+Description: Create new leave request
+
+Mô tả chi tiết:
+  API này dùng để nhân viên tạo yêu cầu nghỉ phép. Yêu cầu sẽ ở trạng thái
+  "pending" và chờ HR/Admin duyệt. Hệ thống tự động kiểm tra tránh trùng lặp.
+
+Các trường hợp sử dụng:
+  1. Nhân viên xin nghỉ phép năm
+  2. Xin nghỉ ốm (có giấy bác sĩ)
+  3. Xin nghỉ việc riêng
+  4. Nghỉ không lương
+  5. Đăng ký nghỉ nhiều ngày liên tiếp
+
+Các loại nghỉ phép (leaveType):
+  - annual: Nghỉ phép năm (thường 12 ngày/năm)
+  - sick: Nghỉ ốm (có giấy bác sĩ)
+  - personal: Nghỉ việc riêng (cưới hỏi, tang, gia đình)
+  - unpaid: Nghỉ không lương
+
+Validation:
+  - startDate phải <= endDate
+  - Không được trùng với yêu cầu khác đang pending hoặc approved
+  - Kiểm tra overlap: Nếu có yêu cầu từ 01/12 - 03/12, không được tạo 02/12 - 04/12
+
+Quy trình:
+  1. Employee tạo yêu cầu (status = pending)
+  2. HR/Admin nhận thông báo yêu cầu mới
+  3. HR/Admin xem lý do và quyết định approve/reject
+  4. Employee nhận thông báo kết quả
+  5. Nếu approved, cron job sẽ skip tạo timesheet cho ngày nghỉ
+
+Lưu ý:
+  - Composite key: (employee_id, created_date)
+  - created_date tự động sinh bởi database (CURRENT_TIMESTAMP)
+  - Reason là optional nhưng nên điền để HR hiểu rõ hơn
+  - Có thể xóa yêu cầu đang pending (chưa duyệt)
+  - Không thể sửa yêu cầu đã tạo (chỉ có thể xóa và tạo lại)
+
+Request Body:
+{
+  "leaveType": "annual|sick|personal|unpaid",
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "reason": "string (optional)"
+}
+
+Success Response (201):
+{
+  "message": "Tạo yêu cầu nghỉ phép thành công",
+  "leaveRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "leave_type": "string",
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD",
+    "reason": "string",
+    "status": "pending"
+  }
+}
+
+Error Response (400):
+{
+  "message": "Đã có yêu cầu nghỉ phép trùng thời gian này"
+}
+
+--------------------------------------------------------------------------------
+7.2 GET MY LEAVE REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/my-leave-requests
+
+Auth Required: Yes
+
+Description: Get employee's own leave requests
+
+Mô tả chi tiết:
+  API này dùng để nhân viên xem tất cả các yêu cầu nghỉ phép của mình,
+  bao gồm cả đang chờ duyệt, đã duyệt, và bị từ chối.
+
+Các trường hợp sử dụng:
+  1. Xem lịch sử các lần xin nghỉ phép
+  2. Kiểm tra yêu cầu nào đang chờ duyệt
+  3. Xem lý do từ chối (nếu có)
+  4. Kiểm tra người duyệt và thời gian duyệt
+  5. Lên kế hoạch nghỉ phép tiếp theo
+
+Thông tin trả về:
+  - Tất cả yêu cầu (pending, approved, rejected)
+  - Thông tin loại nghỉ, ngày bắt đầu/kết thúc
+  - Lý do xin nghỉ
+  - Trạng thái và người duyệt
+  - Ngày duyệt và lý do từ chối (nếu có)
+
+Trạng thái (status):
+  - pending: Đang chờ duyệt (có thể xóa)
+  - approved: Đã duyệt (không thể xóa)
+  - rejected: Bị từ chối (không thể xóa)
+
+Lưu ý:
+  - Kết quả được sắp xếp theo created_date giảm dần (mới nhất trên cùng)
+  - Có thể filter theo status ở frontend nếu cần
+  - Hữu ích cho tab "Leave Requests" trên Employee Dashboard
+  - Hiển thị badge khác nhau cho từng status (pending: yellow, approved: green, rejected: red)
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu nghỉ phép thành công",
+  "leaveRequests": [
+    {
+      "employee_id": "uuid",
+      "created_date": "YYYY-MM-DD HH:MM:SS",
+      "leave_type": "annual",
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD",
+      "reason": "string",
+      "status": "pending|approved|rejected",
+      "approver_name": "string",
+      "approved_date": "YYYY-MM-DD HH:MM:SS",
+      "rejection_reason": "string"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+7.3 GET MY LEAVE STATISTICS
+--------------------------------------------------------------------------------
+GET /auth/my-leave-stats
+
+Auth Required: Yes
+
+Description: Get employee's leave statistics for the year
+
+Mô tả chi tiết:
+  API này dùng để thống kê số ngày nghỉ phép của nhân viên theo từng loại
+  trong một năm. Chỉ tính các yêu cầu đã được duyệt (approved).
+
+Các trường hợp sử dụng:
+  1. Xem số ngày nghỉ phép đã dùng trong năm
+  2. Kiểm tra còn bao nhiêu ngày phép năm
+  3. Thống kê nghỉ ốm, nghỉ việc riêng
+  4. Hiển thị biểu đồ thống kê trên dashboard
+  5. Lên kế hoạch sử dụng phép còn lại
+
+Cách tính:
+  - Chỉ tính các yêu cầu status = 'approved'
+  - Tính tổng số ngày: DATEDIFF(end_date, start_date) + 1
+  - Ví dụ: 01/12 - 03/12 = 3 ngày
+  - Nhóm theo leave_type và tổng hợp
+
+Ví dụ kết quả:
+  - Phép năm (annual): 10 ngày / 12 ngày (còn 2 ngày)
+  - Nghỉ ốm (sick): 3 ngày
+  - Việc riêng (personal): 2 ngày
+  - Không lương (unpaid): 0 ngày
+  - Tổng cộng: 15 ngày
+
+Lưu ý:
+  - Mặc định lấy thống kê năm hiện tại
+  - Có thể truyền year để xem năm khác
+  - Chỉ tính approved, không tính pending và rejected
+  - Hữu ích để hiển thị progress bar "Phép đã dùng / Tổng phép"
+  - HR có thể dùng để kiểm tra nhân viên có dùng hết phép không
+
+Query Parameters:
+  - year: YYYY (optional, defaults to current year)
+
+Success Response (200):
+{
+  "message": "Lấy thống kê nghỉ phép thành công",
+  "year": 2025,
+  "stats": {
+    "annual": 10,
+    "sick": 3,
+    "personal": 2,
+    "unpaid": 0,
+    "total": 15
+  }
+}
+
+--------------------------------------------------------------------------------
+7.4 DELETE MY LEAVE REQUEST
+--------------------------------------------------------------------------------
+DELETE /auth/leave-request
+
+Auth Required: Yes
+
+Description: Delete own pending leave request
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS"
+}
+
+Success Response (200):
+{
+  "message": "Xóa yêu cầu nghỉ phép thành công"
+}
+
+Error Response (400):
+{
+  "message": "Chỉ có thể xóa yêu cầu đang chờ duyệt"
+}
+
+--------------------------------------------------------------------------------
+7.5 GET PENDING LEAVE REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/leave-requests/pending
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get all pending leave requests
+
+Mô tả chi tiết:
+  API này dùng để HR/Admin xem tất cả các yêu cầu nghỉ phép đang chờ duyệt.
+  Đây là API quan trọng nhất cho chức năng duyệt yêu cầu.
+
+Các trường hợp sử dụng:
+  1. HR xem danh sách yêu cầu cần duyệt
+  2. Admin quản lý tất cả yêu cầu nghỉ phép
+  3. Hiển thị tab "Yêu cầu chờ phê duyệt" trên HR/Admin Dashboard
+  4. Thông báo số lượng yêu cầu chờ duyệt (badge)
+  5. Xuất báo cáo yêu cầu chờ xử lý
+
+Thông tin trả về:
+  - Thông tin nhân viên: full_name, department_name
+  - Thông tin yêu cầu: leave_type, start_date, end_date, reason
+  - Thời gian tạo: created_date
+  - Trạng thái: pending
+
+Quy trình duyệt:
+  1. HR/Admin mở tab "Yêu cầu chờ duyệt"
+  2. Xem danh sách tất cả pending requests
+  3. Click vào từng request để xem chi tiết
+  4. Quyết định Approve hoặc Reject
+  5. Request biến mất khỏi danh sách pending
+
+Lưu ý:
+  - Chỉ HR và Admin mới có quyền xem API này
+  - Kết quả sắp xếp theo created_date (cũ nhất trước - FIFO)
+  - Hiển thị badge số lượng để lưu ý (ví dụ: "Yêu cầu chờ (5)")
+  - Nên hiển thị số ngày nghỉ: DATEDIFF(end_date, start_date) + 1
+  - Có thể filter/search ở frontend theo tên, phòng ban, loại nghỉ
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu chờ duyệt thành công",
+  "leaveRequests": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "department_name": "string",
+      "created_date": "YYYY-MM-DD HH:MM:SS",
+      "leave_type": "annual",
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD",
+      "reason": "string",
+      "status": "pending"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+7.6 GET ALL LEAVE REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/leave-requests
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get all leave requests with filters
+
+Query Parameters:
+  - status: pending|approved|rejected (optional)
+  - departmentId: uuid (optional)
+  - startDate: YYYY-MM-DD (optional)
+  - endDate: YYYY-MM-DD (optional)
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu nghỉ phép thành công",
+  "leaveRequests": [ ... ]
+}
+
+--------------------------------------------------------------------------------
+7.7 APPROVE LEAVE REQUEST
+--------------------------------------------------------------------------------
+PUT /auth/leave-request/approve
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Approve leave request
+
+Mô tả chi tiết:
+  API này dùng để HR/Admin duyệt yêu cầu nghỉ phép. Sau khi duyệt, hệ thống
+  sẽ tự động không tạo timesheet cho nhân viên vào các ngày nghỉ.
+
+Các trường hợp sử dụng:
+  1. HR duyệt yêu cầu nghỉ phép hợp lệ
+  2. Admin duyệt yêu cầu nghỉ đặc biệt
+  3. Cho phép nhân viên nghỉ theo kế hoạch
+  4. Xác nhận yêu cầu nghỉ ốm có giấy bác sĩ
+
+Quy trình:
+  1. HR/Admin click "Approve" trên yêu cầu
+  2. Hệ thống cập nhật:
+     - status: pending -> approved
+     - approver_id: ID của HR/Admin duyệt
+     - approved_date: Thời gian hiện tại
+  3. Nhân viên nhận thông báo "Yêu cầu đã được duyệt"
+  4. Cron job (00:01 hàng ngày) sẽ:
+     - Kiểm tra nhân viên có approved leave trong ngày không
+     - Nếu có, bỏ qua không tạo timesheet
+     - Ghi log "Employee X on approved leave, skipping timesheet"
+
+Ảnh hưởng sau khi approve:
+  - Nhân viên không cần check-in/check-out trong ngày nghỉ
+  - Không có timesheet được tạo cho các ngày nghỉ
+  - Không bị tính vắng mặt không phép
+  - Thống kê nghỉ phép được cập nhật
+
+Lưu ý:
+  - Phải cung cấp đúng employeeId và createdDate (composite key)
+  - Chỉ approve được request đang pending
+  - Không thể unapprove sau khi đã duyệt
+  - approver_id tự động lấy từ token (người đang login)
+  - Nên hiển confirm dialog trước khi approve
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS"
+}
+
+Success Response (200):
+{
+  "message": "Duyệt yêu cầu nghỉ phép thành công",
+  "leaveRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "status": "approved",
+    "approver_id": "uuid",
+    "approved_date": "YYYY-MM-DD HH:MM:SS"
+  }
+}
+
+--------------------------------------------------------------------------------
+7.8 REJECT LEAVE REQUEST
+--------------------------------------------------------------------------------
+PUT /auth/leave-request/reject
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Reject leave request with reason
+
+Mô tả chi tiết:
+  API này dùng để HR/Admin từ chối yêu cầu nghỉ phép với lý do rõ ràng.
+  Lý do từ chối giúp nhân viên hiểu tại sao và cải thiện yêu cầu sau.
+
+Các trường hợp sử dứng:
+  1. Yêu cầu không hợp lệ (chưa đủ điều kiện)
+  2. Trùng thời gian quan trọng của dự án
+  3. Nhiều người trong phòng ban nghỉ cùng lúc
+  4. Đã hết phép năm
+  5. Không có giấy bác sĩ cho nghỉ ốm dài ngày
+  6. Thông tin không rõ ràng, thiếu giấy tờ
+
+Các lý do từ chối thường gặp:
+  - "Đã hết phép năm, vui lòng chọn unpaid leave"
+  - "Thời gian này trùng với deadline dự án quan trọng"
+  - "Vui lòng cung cấp giấy bác sĩ cho nghỉ ốm trên 3 ngày"
+  - "Đã có 3 người trong team nghỉ cùng thời gian này"
+  - "Yêu cầu quá gấp, vui lòng đăng ký trước ít nhất 3 ngày"
+
+Quy trình:
+  1. HR/Admin click "Reject" trên yêu cầu
+  2. Hiển thị dialog nhập lý do từ chối
+  3. Hệ thống cập nhật:
+     - status: pending -> rejected
+     - approver_id: ID của người từ chối
+     - approved_date: Thời gian hiện tại
+     - rejection_reason: Lý do từ chối
+  4. Nhân viên nhận thông báo và xem lý do
+  5. Nhân viên có thể tạo yêu cầu mới sau khi hiểu vấn đề
+
+Lưu ý:
+  - rejectReason là bắt buộc - phải giải thích tại sao từ chối
+  - Lý do nên rõ ràng, lịch sự, mang tính xây dựng
+  - Phải cung cấp đúng employeeId và createdDate
+  - Chỉ reject được request đang pending
+  - Không thể unreject sau khi đã từ chối
+  - Nhân viên có thể tạo request mới nếu muốn
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS",
+  "rejectReason": "string"
+}
+
+Success Response (200):
+{
+  "message": "Từ chối yêu cầu nghỉ phép thành công",
+  "leaveRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "status": "rejected",
+    "approver_id": "uuid",
+    "approved_date": "YYYY-MM-DD HH:MM:SS",
+    "rejection_reason": "string"
+  }
+}
+
+================================================================================
+8. OVERTIME REQUEST MANAGEMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+8.1 CREATE OVERTIME REQUEST
+--------------------------------------------------------------------------------
+POST /auth/overtime-request
+
+Auth Required: Yes
+
+Description: Create new overtime request
+
+Mô tả chi tiết:
+  API này dùng để nhân viên đăng ký tăng ca. Yêu cầu sẽ ở trạng thái pending
+  và chờ HR/Admin duyệt. Hệ thống tự động kiểm tra tránh trùng lặp.
+
+Các trường hợp sử dụng:
+  1. Đăng ký tăng ca tối (sau giờ hành chính)
+  2. Đăng ký làm thêm giờ cuối tuần
+  3. Đăng ký tăng ca ngày lễ
+  4. Làm việc ngoài giờ theo yêu cầu dự án
+  5. Tăng ca khẩn cấp để xử lý sự cố
+
+Tính toán giờ tăng ca:
+  - totalHours = (endTime - startTime) / 3600
+  - Ví dụ: 18:00 - 21:00 = 3 giờ
+  - Ví dụ: 18:00 - 21:30 = 3.5 giờ
+  - Có thể tự tính ở frontend hoặc nhập thủ công
+
+Chính sách tăng ca thường gặp:
+  - Ngày thường: 150% lương/giờ
+  - Cuối tuần: 200% lương/giờ
+  - Ngày lễ: 300% lương/giờ
+  - Tăng ca đêm (22h-6h): Thêm 30% phụ cấp
+
+Validation:
+  - otDate không được trong quá khứ quá xa (ví dụ: > 7 ngày)
+  - startTime phải < endTime
+  - totalHours phải > 0 và hợp lý (ví dụ: <= 12 giờ)
+  - Không trùng với yêu cầu tăng ca khác trong cùng ngày
+
+Lưu ý:
+  - Composite key: (employee_id, created_date)
+  - Reason nên điền rõ để HR hiểu mục đích tăng ca
+  - totalHours có thể là số thập phân (3.5, 4.25)
+  - Nên đăng ký trước khi tăng ca (không nên đăng ký sau)
+  - Có thể xóa yêu cầu đang pending
+
+Request Body:
+{
+  "otDate": "YYYY-MM-DD",
+  "startTime": "HH:MM:SS",
+  "endTime": "HH:MM:SS",
+  "totalHours": 3.5,
+  "reason": "string (optional)"
+}
+
+Success Response (201):
+{
+  "message": "Tạo yêu cầu tăng ca thành công",
+  "overtimeRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "ot_date": "YYYY-MM-DD",
+    "start_time": "HH:MM:SS",
+    "end_time": "HH:MM:SS",
+    "total_hours": 3.5,
+    "reason": "string",
+    "status": "pending"
+  }
+}
+
+Error Response (400):
+{
+  "message": "Đã có yêu cầu tăng ca trùng thời gian này"
+}
+
+--------------------------------------------------------------------------------
+8.2 GET MY OVERTIME REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/my-overtime-requests
+
+Auth Required: Yes
+
+Description: Get employee's own overtime requests
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu tăng ca thành công",
+  "overtimeRequests": [
+    {
+      "employee_id": "uuid",
+      "created_date": "YYYY-MM-DD HH:MM:SS",
+      "ot_date": "YYYY-MM-DD",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "total_hours": 3.5,
+      "reason": "string",
+      "status": "pending|approved|rejected",
+      "approver_name": "string"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+8.3 GET MY OVERTIME STATISTICS
+--------------------------------------------------------------------------------
+GET /auth/my-overtime-stats
+
+Auth Required: Yes
+
+Description: Get employee's overtime statistics
+
+Mô tả chi tiết:
+  API này dùng để thống kê số giờ tăng ca của nhân viên. Chỉ tính
+  các yêu cầu đã được duyệt (approved).
+
+Các trường hợp sử dụng:
+  1. Xem tổng số giờ tăng ca trong tháng
+  2. Xem tổng số giờ tăng ca trong năm
+  3. Tính toán lương tăng ca được nhận
+  4. So sánh tăng ca giữa các tháng
+  5. Kiểm tra số lần đăng ký tăng ca
+  6. Hiển thị biểu đồ thống kê
+
+Cách tính:
+  - total_requests: Số lần tăng ca (approved)
+  - approved_count: Số yêu cầu được duyệt
+  - total_hours: Tổng số giờ tăng ca
+
+Ví dụ kết quả:
+  - Năm 2025, Tháng 11:
+    * Tổng yêu cầu: 5 lần
+    * Được duyệt: 4 lần
+    * Tổng giờ: 15.5 giờ
+  - Tính lương: 15.5 * lương_giờ * hệ_số_tăng_ca
+
+Thống kê nâng cao:
+  - Trung bình giờ/lần: total_hours / total_requests
+  - Tỉ lệ duyệt: approved_count / total_submitted
+  - So sánh với tháng trước
+
+Lưu ý:
+  - year là bắt buộc hoặc mặc định là năm hiện tại
+  - month là optional - nếu không có sẽ tính cả năm
+  - Chỉ tính approved, không tính pending và rejected
+  - Hữu ích cho việc tính lương cuối tháng
+  - HR có thể dùng API tương tự để thống kê toàn công ty
+
+Query Parameters:
+  - year: YYYY (optional, defaults to current year)
+  - month: MM (optional)
+
+Success Response (200):
+{
+  "message": "Lấy thống kê tăng ca thành công",
+  "year": 2025,
+  "month": 11,
+  "stats": {
+    "total_requests": 5,
+    "approved_count": 4,
+    "total_hours": 15.5
+  }
+}
+
+--------------------------------------------------------------------------------
+8.4 DELETE MY OVERTIME REQUEST
+--------------------------------------------------------------------------------
+DELETE /auth/overtime-request
+
+Auth Required: Yes
+
+Description: Delete own pending overtime request
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS"
+}
+
+Success Response (200):
+{
+  "message": "Xóa yêu cầu tăng ca thành công"
+}
+
+--------------------------------------------------------------------------------
+8.5 GET PENDING OVERTIME REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/overtime-requests/pending
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get all pending overtime requests
+
+Mô tả chi tiết:
+  API này dùng để HR/Admin xem tất cả yêu cầu tăng ca đang chờ duyệt.
+  Tương tự như leave requests nhưng cho tăng ca.
+
+Các trường hợp sử dụng:
+  1. HR xem danh sách yêu cầu tăng ca cần duyệt
+  2. Quản lý giờ tăng ca của nhân viên
+  3. Kiểm tra tính hợp lý của yêu cầu tăng ca
+  4. Đảm bảo không tăng ca quá giời hạn pháp luật
+  5. Phê duyệt lương tăng ca
+  6. Hiển thị tab "Overtime Requests" trên dashboard
+
+Thông tin quan trọng:
+  - Ngày tăng ca và khoảng thời gian
+  - Tổng số giờ tăng ca
+  - Lý do tăng ca
+  - Thông tin nhân viên và phòng ban
+
+Can nhắc khi duyệt:
+  - Số giờ tăng ca trong tháng có vượt quá giới hạn?
+  - Lý do tăng ca có hợp lý không?
+  - Có đủ ngân sách cho tăng ca không?
+  - Có phải tăng ca thật sự hay giả mạo?
+  - Nhân viên có performance tốt không?
+
+Lưu ý:
+  - Chỉ HR/Admin có quyền xem
+  - Kết quả sắp xếp theo created_date (FIFO)
+  - Hiển thị badge số lượng yêu cầu chờ
+  - Có thể filter theo phòng ban, ngày tăng ca
+  - Nên hiển thị thông tin chi phí dự kiến
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu tăng ca chờ duyệt thành công",
+  "overtimeRequests": [
+    {
+      "employee_id": "uuid",
+      "full_name": "string",
+      "department_name": "string",
+      "created_date": "YYYY-MM-DD HH:MM:SS",
+      "ot_date": "YYYY-MM-DD",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "total_hours": 3.5,
+      "reason": "string",
+      "status": "pending"
+    }
+  ]
+}
+
+--------------------------------------------------------------------------------
+8.6 GET ALL OVERTIME REQUESTS
+--------------------------------------------------------------------------------
+GET /auth/overtime-requests
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Get all overtime requests with filters
+
+Query Parameters:
+  - status: pending|approved|rejected (optional)
+  - employeeId: uuid (optional)
+  - startDate: YYYY-MM-DD (optional)
+  - endDate: YYYY-MM-DD (optional)
+
+Success Response (200):
+{
+  "message": "Lấy danh sách yêu cầu tăng ca thành công",
+  "overtimeRequests": [ ... ]
+}
+
+--------------------------------------------------------------------------------
+8.7 APPROVE OVERTIME REQUEST
+--------------------------------------------------------------------------------
+PUT /auth/overtime-request/approve
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Approve overtime request
+
+Mô tả chi tiết:
+  API này dùng để HR/Admin duyệt yêu cầu tăng ca. Sau khi duyệt, số giờ
+  tăng ca sẽ được tính vào lương của nhân viên.
+
+Các trường hợp sử dụng:
+  1. Duyệt yêu cầu tăng ca hợp lệ
+  2. Xác nhận nhân viên đã làm tăng ca thực sự
+  3. Phê duyệt thanh toán lương tăng ca
+  4. Ghi nhận giờ làm việc ngoài giờ
+
+Quy trình:
+  1. HR/Admin kiểm tra yêu cầu tăng ca
+  2. Xác minh nhân viên thực sự đã tăng ca (nếu có hệ thống tracking)
+  3. Kiểm tra tổng giờ tăng ca trong tháng
+  4. Click "Approve"
+  5. Hệ thống cập nhật:
+     - status: pending -> approved
+     - approver_id: ID của người duyệt
+  6. Nhân viên nhận thông báo
+  7. Giờ tăng ca được tính vào bảng lương
+
+Ảnh hưởng sau khi approve:
+  - Thống kê tăng ca được cập nhật
+  - totalHours được cộng vào tổng giờ tăng ca tháng
+  - Hệ thống tính lương sẽ dựa trên số giờ này
+  - Báo cáo tăng ca được cập nhật
+
+Lưu ý:
+  - Phải cung cấp đúng employeeId và createdDate
+  - Chỉ approve được request pending
+  - approver_id tự động lấy từ token
+  - Nên kiểm tra tổng giờ tăng ca tháng trước khi approve
+  - Luật lao động VN: Tối đa 200h tăng ca/năm
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS"
+}
+
+Success Response (200):
+{
+  "message": "Duyệt yêu cầu tăng ca thành công",
+  "overtimeRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "status": "approved",
+    "approver_id": "uuid"
+  }
+}
+
+--------------------------------------------------------------------------------
+8.8 REJECT OVERTIME REQUEST
+--------------------------------------------------------------------------------
+PUT /auth/overtime-request/reject
+
+Auth Required: Yes (HR/Admin only)
+
+Description: Reject overtime request
+
+Request Body:
+{
+  "employeeId": "uuid",
+  "createdDate": "YYYY-MM-DD HH:MM:SS"
+}
+
+Success Response (200):
+{
+  "message": "Từ chối yêu cầu tăng ca thành công",
+  "overtimeRequest": {
+    "employee_id": "uuid",
+    "created_date": "YYYY-MM-DD HH:MM:SS",
+    "status": "rejected",
+    "approver_id": "uuid"
+  }
+}
+
+================================================================================
+9. CRON JOBS & SYSTEM MAINTENANCE
+================================================================================
+
+--------------------------------------------------------------------------------
+9.1 MANUAL TRIGGER CRON JOBS
+--------------------------------------------------------------------------------
+POST /auth/trigger-cron
+
+Auth Required: Yes (Admin only)
+
+Description: Manually trigger daily cron jobs
+
+Mô tả chi tiết:
+  API này cho phép Admin kích hoạt thủ công các tác vụ tự động thường chạy
+  vào 00:01 hàng ngày. Rất hữu ích cho testing và khắc phục sự cố.
+
+Các trường hợp sử dụng:
+  1. Testing chức năng cron không cần chờ đến 00:01
+  2. Khắc phục khi cron job bị lỗi hoặc không chạy
+  3. Tạo timesheet thủ công cho ngày cụ thể
+  4. Áp dụng pending work shift updates ngay lập tức
+  5. Auto checkout cho ngày quá khứ
+  6. Kiểm tra hoạt động của hệ thống tự động hóa
+
+Các tác vụ được thực hiện:
+
+1. Apply Pending Work Shift Updates:
+   - Tìm các shift có pending_effective_date = date
+   - Sao chép pending fields sang active fields
+   - Xóa pending fields
+   - Log: "Applied 1 pending shift update"
+
+2. Auto Checkout Forgotten Timesheets:
+   - Tìm timesheet có check_in nhưng chưa check_out
+   - Set check_out = shift end_time
+   - Set notes = "Auto checkout by system"
+   - Log: "Auto checked out X employees"
+
+3. Generate Daily Timesheets:
+   - Tạo timesheet cho tất cả nhân viên active
+   - Kiểm tra approved leave, nếu có thì skip
+   - Gán shift theo department
+   - Set check_in = NULL, check_out = NULL
+   - Log: "Created X timesheets, skipped Y on leave"
+
+Tham số:
+  - date: Ngày muốn chạy cron (mặc định = hôm nay)
+  - Ví dụ: "2025-11-25" - chạy cron cho ngày 25/11
+  - Có thể chạy cho ngày quá khứ để khắc phục dữ liệu
+
+Kết quả trả về:
+  - Chi tiết số lượng shift updates applied
+  - Số lượng timesheet được tạo
+  - Số lượng nhân viên bị skip (on leave)
+  - Số lượng lỗi (nếu có)
+
+Lưu ý:
+  - Chỉ Admin có quyền sử dụng API này
+  - Cẩn thận khi chạy cho ngày quá khứ (có thể ghi đè dữ liệu)
+  - Không nên chạy nhiều lần cho cùng một ngày
+  - Kiểm tra log để đảm bảo thành công
+  - Hữu ích cho development và testing
+  - Production nên dùng cron tự động (00:01 hàng ngày)
+
+Request Body:
+{
+  "date": "YYYY-MM-DD (optional, defaults to today)"
+}
+
+Success Response (200):
+{
+  "message": "Chạy cron jobs thành công",
+  "date": "YYYY-MM-DD",
+  "results": {
+    "shiftUpdates": {
+      "applied": 1,
+      "message": "Đã áp dụng 1 thay đổi ca làm việc"
+    },
+    "timesheetGeneration": {
+      "created": 50,
+      "skipped": 5,
+      "errors": 0
+    }
+  }
+}
+
+--------------------------------------------------------------------------------
+AUTOMATIC CRON JOBS (Runs at 00:01 daily)
+--------------------------------------------------------------------------------
+
+Mô tả chi tiết:
+  Hệ thống tự động chạy các tác vụ sau vào lúc 00:01 hàng ngày bằng node-cron.
+  Đây là cơ chế tự động hóa quan trọng để duy trì hoạt động hệ thống.
+
+The system automatically runs the following tasks at 00:01 every day:
+
+1. Apply Pending Work Shift Updates
+   - Checks for work shifts with pending_effective_date = today
+   - Applies pending changes to active fields
+   - Clears pending fields
+
+   Mô tả chi tiết:
+   Khi HR/Admin cập nhật work shift với effective_date, thay đổi không áp dụng
+   ngay mà được lưu vào pending fields. Tác vụ này tự động kiểm tra và áp dụng
+   các thay đổi đến ngày hiệu lực.
+
+   Quy trình:
+   - Tìm tất cả shifts có pending_effective_date = CURRENT_DATE
+   - Với mỗi shift tìm được:
+     * shift_name = pending_shift_name
+     * start_time = pending_start_time
+     * end_time = pending_end_time
+     * max_late_time = pending_max_late_time
+     * Set tất cả pending fields = NULL
+   - Log số lượng shift đã cập nhật
+
+   Ví dụ:
+   - Ngày 30/11: HR tạo pending update cho SHIFT_IT (effective_date = 01/12)
+   - Ngày 01/12 lúc 00:01: Cron tự động áp dụng thay đổi
+   - Từ ngày 01/12: SHIFT_IT dùng giờ làm việc mới
+
+2. Auto Checkout Forgotten Timesheets
+   - Finds timesheets with check_in but no check_out from previous day
+   - Automatically sets check_out to shift end_time
+   - Adds note: "Auto checkout by system"
+
+   Mô tả chi tiết:
+   Nhiều nhân viên quên check-out khi rời công ty. Tác vụ này tự động
+   checkout cho họ với thời gian = giờ kết thúc ca.
+
+   Quy trình:
+   - Tìm timesheets có work_date = yesterday
+   - Lọc những timesheet có check_in != NULL và check_out = NULL
+   - Với mỗi timesheet:
+     * Set check_out = shift end_time
+     * Set notes = "Auto checkout by system"
+     * Tính minutes_early (nếu có)
+   - Log số lượng auto checkout
+
+   Ví dụ:
+   - Ngày 24/11: Nhân viên A check-in 08:00 nhưng quên check-out
+   - Ngày 25/11 lúc 00:01: Cron tự động set check_out = 17:00 (shift end_time)
+   - Bảng chấm công ngày 24/11 đầy đủ: 08:00 - 17:00 (Auto checkout)
+
+3. Generate Daily Timesheets
+   - Creates timesheet records for all active employees
+   - Assigns appropriate shift based on department
+   - Skips employees with approved leave requests for that date
+   - Sets initial values: check_in=NULL, check_out=NULL, minutes_late=0
+
+   Mô tả chi tiết:
+   Đây là tác vụ quan trọng nhất - tạo bảng chấm công trống cho ngày mới.
+   Nhân viên sẽ check-in/check-out vào các timesheet này.
+
+   Quy trình:
+   - Lấy danh sách tất cả nhân viên có status = 'active'
+   - Với mỗi nhân viên:
+     1. Kiểm tra có approved leave request trong ngày không
+     2. Nếu có: Skip, ghi log "Employee X on approved leave"
+     3. Nếu không:
+        - Lấy shift theo department của nhân viên
+        - Tạo timesheet:
+          * employee_id
+          * work_date = CURRENT_DATE
+          * shift_id, start_time, end_time
+          * check_in = NULL, check_out = NULL
+          * minutes_late = 0, minutes_early = 0
+          * notes = "Auto-generated by system"
+   - Log kết quả: "Created X timesheets, skipped Y on leave"
+
+   Ví dụ:
+   - Ngày 25/11 lúc 00:01:
+     * Có 18 nhân viên active
+     * 1 nhân viên có approved leave 24/11 - 26/11 -> Skip
+     * Tạo 17 timesheet mới cho ngày 25/11
+     * Log: "Created 17, skipped 1 on leave"
+
+Lưu ý:
+  - Cron chạy tự động, không cần can thiệp
+  - Nếu server tắt vào lúc 00:01, có thể dùng manual trigger
+  - Kiểm tra log để đảm bảo cron chạy thành công
+  - Nếu có lỗi, dùng POST /auth/trigger-cron để khắc phục
+  - Cron expression: '1 0 * * *' (00:01 mỗi ngày)
+  - Thời gian chạy: 1-2 giây cho 100 nhân viên
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. COMPOSITE PRIMARY KEYS
+   - LEAVE_REQUEST: (employee_id, created_date)
+   - OVERTIME_REQUEST: (employee_id, created_date)
+   - Use both fields when referencing these tables
+
+2. TIMEZONE HANDLING
+   - Database stores timestamps in local timezone (GMT+7)
+   - Frontend sends ISO 8601 format
+   - Backend converts using Date objects (not string conversion)
+   - Time matching uses TIMESTAMPDIFF with 5-second tolerance
+
+3. DATE/TIME FORMATS
+   - Dates: YYYY-MM-DD (e.g., 2025-11-25)
+   - Times: HH:MM:SS (e.g., 09:00:00)
+   - Timestamps: YYYY-MM-DD HH:MM:SS or ISO 8601
+
+4. ROLE-BASED ACCESS
+   - Admin: Full access to all endpoints
+   - HR: Employee management, contracts, attendance monitoring, approvals
+   - Employee: Personal data, own attendance, create requests
+
+5. TOKEN EXPIRATION
+   - Access Token: 1 hour
+   - Refresh Token: 7 days
+   - Use refresh token to get new access token
+
+6. ERROR HANDLING
+   - 400: Bad Request (validation errors)
+   - 401: Unauthorized (invalid/expired token)
+   - 403: Forbidden (insufficient permissions)
+   - 404: Not Found
+   - 500: Internal Server Error
+
+7. WORK SHIFT VERSION CONTROL
+   - Uses Simplified Version Control
+   - Pending changes stored in pending_* fields
+   - Automatically applied on effective_date by cron
+   - Can be cancelled before effective date
+
+8. LEAVE REQUEST VALIDATION
+   - Checks for overlapping leave requests (pending or approved)
+   - Validates start_date <= end_date
+   - Employees on approved leave are automatically skipped from timesheet generation
+
+9. OVERTIME REQUEST VALIDATION
+   - Checks for overlapping overtime on same date
+   - Validates start_time < end_time
+   - Total hours calculated automatically or provided by user
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

@@ -298,6 +298,15 @@ router.put('/overtime-request/reject',
   AuthController.rejectOvertimeRequest
 );
 
+// ==================== CRON JOB ROUTES ====================
+
+// Manual trigger cron jobs - Admin only
+router.post('/trigger-cron',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdmin,
+  AuthController.triggerCronJobs
+);
+
 // Legacy route
 router.post('/register', AuthController.register);
 

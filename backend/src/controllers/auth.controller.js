@@ -2061,6 +2061,44 @@ class AuthController {
       });
     }
   }
+
+  /**
+   * Manual trigger cron jobs (Admin only)
+   */
+  static async triggerCronJobs(req, res) {
+    try {
+      const { date } = req.body;
+      const targetDate = date || new Date().toISOString().split('T')[0];
+
+      console.log(`🔧 [MANUAL TRIGGER] Starting cron jobs for ${targetDate}...`);
+
+      // 1. Apply pending work shift updates
+      console.log('📋 Step 1: Applying pending work shift updates...');
+      const WorkShiftModel = require('../../models/workshift.model');
+      const applyResult = await WorkShiftModel.applyPendingUpdates(targetDate);
+      console.log('✅ Shift updates:', applyResult);
+
+      // 2. Generate daily timesheets
+      console.log('📋 Step 2: Generating daily timesheets...');
+      const timesheetResult = await CronService.manualTrigger(targetDate);
+      console.log('✅ Timesheet generation:', timesheetResult);
+
+      return res.status(200).json({
+        message: 'Chạy cron jobs thành công',
+        date: targetDate,
+        results: {
+          shiftUpdates: applyResult,
+          timesheetGeneration: timesheetResult
+        }
+      });
+    } catch (error) {
+      console.error('Manual trigger cron error:', error);
+      return res.status(500).json({
+        message: 'Lỗi khi chạy cron jobs',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = AuthController;

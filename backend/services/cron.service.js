@@ -5,29 +5,32 @@ class CronService {
   static startJobs() {
     // Chạy vào 00:01 mỗi ngày
     cron.schedule('1 0 * * *', async () => {
-      console.log('🕐 [CRON] Starting daily tasks...');
+      console.log('🕐 [CRON] Starting daily tasks at', new Date().toISOString());
       try {
         // 1. Apply pending work shift updates
+        console.log('📋 [CRON] Step 1: Applying pending work shift updates...');
         const WorkShiftModel = require('../models/workshift.model');
-        await WorkShiftModel.applyPendingUpdates();
+        const applyResult = await WorkShiftModel.applyPendingUpdates();
+        console.log('✅ [CRON] Shift updates:', applyResult);
         
         // 2. Tự động checkout những timesheet quên checkout
+        console.log('📋 [CRON] Step 2: Auto-checkout forgotten timesheets...');
         const DailyTimesheetModel = require('../models/dailyTimesheet.model');
-        await DailyTimesheetModel.autoCheckoutForgottenTimesheets();
+        const checkoutResult = await DailyTimesheetModel.autoCheckoutForgottenTimesheets();
+        console.log('✅ [CRON] Auto checkout:', checkoutResult);
         
         // 3. Tạo timesheet mới cho ngày hôm nay
-        await this.generateDailyTimesheets();
+        console.log('📋 [CRON] Step 3: Generating daily timesheets...');
+        const timesheetResult = await this.generateDailyTimesheets();
+        console.log('✅ [CRON] Timesheet generation:', timesheetResult);
         
-        console.log('✅ [CRON] Daily tasks completed');
+        console.log('✅ [CRON] All daily tasks completed successfully');
       } catch (error) {
         console.error('❌ [CRON] Error in daily tasks:', error);
       }
     });
 
     console.log('✅ Cron jobs scheduled: Daily tasks at 00:01 (shift updates + auto checkout + timesheet generation)');
-    
-    // Uncomment để test ngay khi server start
-    // this.generateDailyTimesheets();
   }
 
   static async generateDailyTimesheets(targetDate = null) {
@@ -62,7 +65,18 @@ class CronService {
         shiftMap[shift.department_id] = shift.shift_id;
       });
 
-      // 3. Process từng nhân viên
+      // 3. Lấy approved leave requests cho workDate
+      const [leaveRequests] = await connection.query(`
+        SELECT employee_id 
+        FROM LEAVE_REQUEST 
+        WHERE status = 'approved' 
+        AND ? BETWEEN DATE(start_date) AND DATE(end_date)
+      `, [workDate]);
+
+      const employeesOnLeave = new Set(leaveRequests.map(r => r.employee_id));
+      console.log(`ℹ️ [CRON] ${employeesOnLeave.size} employees on approved leave`);
+
+      // 4. Process từng nhân viên
       for (const emp of employees) {
         try {
           const shiftId = shiftMap[emp.department_id];
@@ -80,6 +94,13 @@ class CronService {
           );
 
           if (existing.length > 0) {
+            skipped++;
+            continue;
+          }
+
+          // Skip nếu nhân viên đang nghỉ phép được duyệt
+          if (employeesOnLeave.has(emp.employee_id)) {
+            console.log(`ℹ️ [CRON] Skipping ${emp.employee_id} - on approved leave`);
             skipped++;
             continue;
           }
