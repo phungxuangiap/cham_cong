@@ -45,7 +45,7 @@ CREATE TABLE EMPLOYEE (
 );
 
 CREATE TABLE USER_ACCOUNT (
-    employee_id VARCHAR(255) PRIMARY KEY,
+    employee_id VARCHAR(255),
     username VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL,
