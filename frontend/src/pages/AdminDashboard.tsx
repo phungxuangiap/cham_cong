@@ -89,6 +89,14 @@ const AdminDashboard = () => {
   const [pendingOvertimeRequests, setPendingOvertimeRequests] = useState<any[]>([]);
   const [overtimeRequestsLoading, setOvertimeRequestsLoading] = useState(false);
 
+  // Dashboard Stats states
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  });
+
 
   useEffect(() => {
     if (activeTab === 'employees') {
@@ -100,6 +108,8 @@ const AdminDashboard = () => {
     } else if (activeTab === 'requests') {
       fetchPendingLeaveRequests();
       fetchPendingOvertimeRequests();
+    } else if (activeTab === 'home') {
+      fetchDashboardStats();
     }
   }, [activeTab]);
 
@@ -149,6 +159,18 @@ const AdminDashboard = () => {
       console.error('Error fetching work shifts:', error);
     } finally {
       setWorkShiftsLoading(false);
+    }
+  };
+
+  const fetchDashboardStats = async () => {
+    setDashboardLoading(true);
+    try {
+      const response = await authService.getAdminDashboardStats(dateRange.startDate, dateRange.endDate);
+      setDashboardStats(response.data.stats);
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+    } finally {
+      setDashboardLoading(false);
     }
   };
 
@@ -493,81 +515,229 @@ const AdminDashboard = () => {
         <div className="p-6">
           {activeTab === 'home' && (
             <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <div className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Tổng nhân viên</h3>
-                      <p className="text-4xl font-bold">156</p>
-                    </div>
-                    <UserGroupIcon className="h-12 w-12 opacity-80" />
-                  </div>
+              {dashboardLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                 </div>
-
-                <div className="card bg-gradient-to-br from-green-500 to-green-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Đang làm việc</h3>
-                      <p className="text-4xl font-bold">142</p>
+              ) : (
+                <>
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                    <div className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-90">Tổng nhân viên</h3>
+                          <p className="text-4xl font-bold">{dashboardStats?.overview?.totalEmployees || 0}</p>
+                        </div>
+                        <UserGroupIcon className="h-12 w-12 opacity-80" />
+                      </div>
                     </div>
-                    <ChartBarIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
 
-                <div className="card bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Chờ duyệt</h3>
-                      <p className="text-4xl font-bold">8</p>
+                    <div className="card bg-gradient-to-br from-green-500 to-green-600 text-white">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-90">Đã check-in hôm nay</h3>
+                          <p className="text-4xl font-bold">{dashboardStats?.todayAttendance?.checkedIn || 0}</p>
+                          <p className="text-xs opacity-80 mt-1">/ {dashboardStats?.todayAttendance?.totalScheduled || 0} nhân viên</p>
+                        </div>
+                        <ChartBarIcon className="h-12 w-12 opacity-80" />
+                      </div>
                     </div>
-                    <ClipboardDocumentListIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
 
-                <div className="card bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Phòng ban</h3>
-                      <p className="text-4xl font-bold">12</p>
+                    <div className="card bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-90">Chờ duyệt</h3>
+                          <p className="text-4xl font-bold">{dashboardStats?.overview?.pendingRequests || 0}</p>
+                          <p className="text-xs opacity-80 mt-1">
+                            {dashboardStats?.overview?.pendingLeaveRequests || 0} nghỉ phép, {dashboardStats?.overview?.pendingOvertimeRequests || 0} tăng ca
+                          </p>
+                        </div>
+                        <ClipboardDocumentListIcon className="h-12 w-12 opacity-80" />
+                      </div>
                     </div>
-                    <CogIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
-              </div>
 
-              {/* Recent Activities */}
-              <div className="card">
-                <h3 className="text-xl font-bold text-gray-900 mb-4">Hoạt động gần đây</h3>
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3 pb-3 border-b border-gray-200">
-                    <div className="h-2 w-2 bg-green-500 rounded-full mt-2"></div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">Tạo tài khoản mới</p>
-                      <p className="text-sm text-gray-500">Nguyễn Văn A - Nhân viên IT</p>
-                      <p className="text-xs text-gray-400 mt-1">5 phút trước</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3 pb-3 border-b border-gray-200">
-                    <div className="h-2 w-2 bg-blue-500 rounded-full mt-2"></div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">Duyệt đơn nghỉ phép</p>
-                      <p className="text-sm text-gray-500">Trần Thị B - 2 ngày</p>
-                      <p className="text-xs text-gray-400 mt-1">1 giờ trước</p>
+                    <div className="card bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-90">Phòng ban</h3>
+                          <p className="text-4xl font-bold">{dashboardStats?.overview?.totalDepartments || 0}</p>
+                        </div>
+                        <CogIcon className="h-12 w-12 opacity-80" />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-3 pb-3 border-b border-gray-200">
-                    <div className="h-2 w-2 bg-yellow-500 rounded-full mt-2"></div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">Cập nhật thông tin</p>
-                      <p className="text-sm text-gray-500">Phòng Marketing - Số lượng: 15</p>
-                      <p className="text-xs text-gray-400 mt-1">3 giờ trước</p>
+                  {/* Working Hours Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div className="card">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Tổng giờ làm việc thực tế</h3>
+                      <p className="text-4xl font-bold text-blue-600">{dashboardStats?.workingHours?.totalActualHours || 0}</p>
+                      <p className="text-sm text-gray-500 mt-2">giờ trong khoảng thời gian đã chọn</p>
+                    </div>
+                    <div className="card">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Tổng giờ theo ca</h3>
+                      <p className="text-4xl font-bold text-green-600">{dashboardStats?.workingHours?.totalScheduledHours || 0}</p>
+                      <p className="text-sm text-gray-500 mt-2">giờ theo lịch ca làm việc</p>
+                    </div>
+                    <div className="card">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Hiệu suất làm việc</h3>
+                      <p className="text-4xl font-bold text-purple-600">{dashboardStats?.workingHours?.efficiency || 0}%</p>
+                      <p className="text-sm text-gray-500 mt-2">tỷ lệ giờ thực tế / giờ ca</p>
                     </div>
                   </div>
-                </div>
-              </div>
+
+                  {/* Late/Early Stats */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div className="card">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Thống kê đi muộn</h3>
+                      <div className="flex items-center gap-8">
+                        <div>
+                          <p className="text-sm text-gray-500">Tổng phút đi muộn</p>
+                          <p className="text-3xl font-bold text-red-600">{dashboardStats?.workingHours?.totalLateMinutes || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Trung bình / người</p>
+                          <p className="text-3xl font-bold text-orange-600">{dashboardStats?.workingHours?.avgLateMinutes || 0} phút</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="card">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Thống kê về sớm</h3>
+                      <div className="flex items-center gap-8">
+                        <div>
+                          <p className="text-sm text-gray-500">Tổng phút về sớm</p>
+                          <p className="text-3xl font-bold text-yellow-600">{dashboardStats?.workingHours?.totalEarlyMinutes || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Trung bình / người</p>
+                          <p className="text-3xl font-bold text-amber-600">{dashboardStats?.workingHours?.avgEarlyMinutes || 0} phút</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daily Working Hours Chart */}
+                  <div className="card mb-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Biểu đồ giờ làm việc theo ngày</h3>
+                    {dashboardStats?.dailyBreakdown && dashboardStats.dailyBreakdown.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <div className="min-w-full" style={{ minHeight: '300px' }}>
+                          <div className="flex items-end gap-1 h-64 px-4">
+                            {dashboardStats.dailyBreakdown.map((day: any, index: number) => (
+                              <div key={index} className="flex-1 flex flex-col items-center gap-1">
+                                <div className="w-full flex flex-col items-center gap-1">
+                                  {/* Actual hours bar */}
+                                  <div
+                                    className="w-4 bg-blue-500 rounded-t"
+                                    style={{
+                                      height: `${Math.max(4, (day.actualHours / (Math.max(...dashboardStats.dailyBreakdown.map((d: any) => d.scheduledHours)) || 1)) * 200)}px`
+                                    }}
+                                    title={`Thực tế: ${day.actualHours} giờ`}
+                                  ></div>
+                                  {/* Scheduled hours bar */}
+                                  <div
+                                    className="w-4 bg-green-300 rounded-t opacity-60"
+                                    style={{
+                                      height: `${Math.max(4, (day.scheduledHours / (Math.max(...dashboardStats.dailyBreakdown.map((d: any) => d.scheduledHours)) || 1)) * 200)}px`
+                                    }}
+                                    title={`Theo ca: ${day.scheduledHours} giờ`}
+                                  ></div>
+                                </div>
+                                <span className="text-xs text-gray-500 transform -rotate-45 origin-top-left mt-2">
+                                  {new Date(day.date).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex justify-center gap-6 mt-8 pt-4 border-t">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                              <span className="text-sm text-gray-600">Giờ thực tế</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 bg-green-300 rounded"></div>
+                              <span className="text-sm text-gray-600">Giờ theo ca</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">Không có dữ liệu trong khoảng thời gian đã chọn</p>
+                    )}
+                  </div>
+
+                  {/* Department Stats Table */}
+                  <div className="card">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Thống kê theo phòng ban</h3>
+                    {dashboardStats?.departmentBreakdown && dashboardStats.departmentBreakdown.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Phòng ban
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Số NV
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Giờ thực tế
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Giờ theo ca
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Hiệu suất
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Đi muộn (phút)
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {dashboardStats.departmentBreakdown.map((dept: any) => (
+                              <tr key={dept.departmentId} className="hover:bg-gray-50">
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="font-medium text-gray-900">{dept.departmentName}</div>
+                                  <div className="text-xs text-gray-500">{dept.departmentId}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {dept.employeeCount}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="text-sm font-medium text-blue-600">{dept.actualHours}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="text-sm font-medium text-green-600">{dept.scheduledHours}</span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="flex items-center">
+                                    <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                      <div
+                                        className={`h-2 rounded-full ${dept.efficiency >= 90 ? 'bg-green-500' : dept.efficiency >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                        style={{ width: `${Math.min(100, dept.efficiency)}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className="text-sm font-medium">{dept.efficiency}%</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`text-sm font-medium ${dept.totalLateMinutes > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                                    {dept.totalLateMinutes}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">Không có dữ liệu phòng ban</p>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
 

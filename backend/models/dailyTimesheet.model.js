@@ -392,6 +392,271 @@ class DailyTimesheetModel {
       throw error;
     }
   }
+
+  /**
+   * Get admin dashboard statistics
+   * @param {string} startDate - Format: YYYY-MM-DD
+   * @param {string} endDate - Format: YYYY-MM-DD  
+   * @returns {Promise<Object>}
+   */
+  static async getAdminDashboardStats(startDate, endDate) {
+    try {
+      // 1. Get total employees count
+      const [employeeCount] = await connection.query(`
+        SELECT COUNT(*) as total FROM EMPLOYEE WHERE status = 'active'
+      `);
+
+      // 2. Get total departments count
+      const [departmentCount] = await connection.query(`
+        SELECT COUNT(*) as total FROM DEPARTMENT
+      `);
+
+      // 3. Get pending requests count
+      const [pendingLeave] = await connection.query(`
+        SELECT COUNT(*) as total FROM LEAVE_REQUEST WHERE status = 'pending'
+      `);
+      const [pendingOvertime] = await connection.query(`
+        SELECT COUNT(*) as total FROM OVERTIME_REQUEST WHERE status = 'pending'
+      `);
+
+      // 4. Get today's attendance stats
+      const today = new Date().toISOString().split('T')[0];
+      const [todayStats] = await connection.query(`
+        SELECT 
+          COUNT(DISTINCT dt.employee_id) as total_scheduled,
+          COUNT(DISTINCT CASE WHEN dt.check_in_time IS NOT NULL THEN dt.employee_id END) as checked_in,
+          COUNT(DISTINCT CASE WHEN dt.check_out_time IS NOT NULL THEN dt.employee_id END) as checked_out,
+          COUNT(DISTINCT CASE WHEN dt.minutes_late > 0 THEN dt.employee_id END) as late_today
+        FROM DAILY_TIMESHEET dt
+        WHERE dt.work_date = ?
+      `, [today]);
+
+      // 5. Get working hours statistics for date range
+      const [hoursStats] = await connection.query(`
+        SELECT 
+          COUNT(DISTINCT dt.employee_id, dt.work_date) as total_records,
+          SUM(
+            CASE 
+              WHEN dt.check_in_time IS NOT NULL AND dt.check_out_time IS NOT NULL 
+              THEN TIMESTAMPDIFF(MINUTE, 
+                CONCAT(dt.work_date, ' ', dt.check_in_time),
+                CONCAT(dt.work_date, ' ', dt.check_out_time)
+              ) / 60.0
+              ELSE 0 
+            END
+          ) as total_actual_hours,
+          SUM(
+            TIMESTAMPDIFF(MINUTE, 
+              CONCAT(dt.work_date, ' ', ws.start_time),
+              CONCAT(dt.work_date, ' ', ws.end_time)
+            ) / 60.0
+          ) as total_scheduled_hours,
+          AVG(dt.minutes_late) as avg_late_minutes,
+          AVG(dt.minutes_early) as avg_early_minutes,
+          SUM(dt.minutes_late) as total_late_minutes,
+          SUM(dt.minutes_early) as total_early_minutes
+        FROM DAILY_TIMESHEET dt
+        LEFT JOIN WORK_SHIFT ws ON dt.shift_id = ws.shift_id
+        WHERE dt.work_date BETWEEN ? AND ?
+          AND dt.check_in_time IS NOT NULL
+      `, [startDate, endDate]);
+
+      // 6. Get daily working hours breakdown for charts
+      const [dailyStats] = await connection.query(`
+        SELECT 
+          dt.work_date as date,
+          COUNT(DISTINCT dt.employee_id) as employee_count,
+          SUM(
+            CASE 
+              WHEN dt.check_in_time IS NOT NULL AND dt.check_out_time IS NOT NULL 
+              THEN TIMESTAMPDIFF(MINUTE, 
+                CONCAT(dt.work_date, ' ', dt.check_in_time),
+                CONCAT(dt.work_date, ' ', dt.check_out_time)
+              ) / 60.0
+              ELSE 0 
+            END
+          ) as actual_hours,
+          SUM(
+            TIMESTAMPDIFF(MINUTE, 
+              CONCAT(dt.work_date, ' ', ws.start_time),
+              CONCAT(dt.work_date, ' ', ws.end_time)
+            ) / 60.0
+          ) as scheduled_hours,
+          COUNT(DISTINCT CASE WHEN dt.minutes_late > 0 THEN dt.employee_id END) as late_count
+        FROM DAILY_TIMESHEET dt
+        LEFT JOIN WORK_SHIFT ws ON dt.shift_id = ws.shift_id
+        WHERE dt.work_date BETWEEN ? AND ?
+        GROUP BY dt.work_date
+        ORDER BY dt.work_date ASC
+      `, [startDate, endDate]);
+
+      // 7. Get department-wise hours breakdown
+      const [departmentStats] = await connection.query(`
+        SELECT 
+          d.department_id,
+          d.department_name,
+          COUNT(DISTINCT e.employee_id) as employee_count,
+          SUM(
+            CASE 
+              WHEN dt.check_in_time IS NOT NULL AND dt.check_out_time IS NOT NULL 
+              THEN TIMESTAMPDIFF(MINUTE, 
+                CONCAT(dt.work_date, ' ', dt.check_in_time),
+                CONCAT(dt.work_date, ' ', dt.check_out_time)
+              ) / 60.0
+              ELSE 0 
+            END
+          ) as actual_hours,
+          SUM(
+            TIMESTAMPDIFF(MINUTE, 
+              CONCAT(dt.work_date, ' ', ws.start_time),
+              CONCAT(dt.work_date, ' ', ws.end_time)
+            ) / 60.0
+          ) as scheduled_hours,
+          SUM(dt.minutes_late) as total_late_minutes
+        FROM DEPARTMENT d
+        LEFT JOIN EMPLOYEE e ON d.department_id = e.department_id AND e.status = 'active'
+        LEFT JOIN DAILY_TIMESHEET dt ON e.employee_id = dt.employee_id 
+          AND dt.work_date BETWEEN ? AND ?
+        LEFT JOIN WORK_SHIFT ws ON dt.shift_id = ws.shift_id
+        GROUP BY d.department_id, d.department_name
+        HAVING employee_count > 0
+        ORDER BY actual_hours DESC
+      `, [startDate, endDate]);
+
+      // 8. Get on-leave employees today
+      const [onLeaveToday] = await connection.query(`
+        SELECT COUNT(*) as total FROM LEAVE_REQUEST 
+        WHERE status = 'approved' 
+          AND ? BETWEEN start_date AND end_date
+      `, [today]);
+
+      return {
+        overview: {
+          totalEmployees: employeeCount[0]?.total || 0,
+          totalDepartments: departmentCount[0]?.total || 0,
+          pendingRequests: (pendingLeave[0]?.total || 0) + (pendingOvertime[0]?.total || 0),
+          pendingLeaveRequests: pendingLeave[0]?.total || 0,
+          pendingOvertimeRequests: pendingOvertime[0]?.total || 0
+        },
+        todayAttendance: {
+          totalScheduled: todayStats[0]?.total_scheduled || 0,
+          checkedIn: todayStats[0]?.checked_in || 0,
+          checkedOut: todayStats[0]?.checked_out || 0,
+          lateToday: todayStats[0]?.late_today || 0,
+          onLeave: onLeaveToday[0]?.total || 0,
+          notCheckedIn: (todayStats[0]?.total_scheduled || 0) - (todayStats[0]?.checked_in || 0)
+        },
+        workingHours: {
+          totalActualHours: Math.round((hoursStats[0]?.total_actual_hours || 0) * 100) / 100,
+          totalScheduledHours: Math.round((hoursStats[0]?.total_scheduled_hours || 0) * 100) / 100,
+          efficiency: hoursStats[0]?.total_scheduled_hours > 0 
+            ? Math.round((hoursStats[0]?.total_actual_hours / hoursStats[0]?.total_scheduled_hours) * 100) 
+            : 0,
+          avgLateMinutes: Math.round(hoursStats[0]?.avg_late_minutes || 0),
+          avgEarlyMinutes: Math.round(hoursStats[0]?.avg_early_minutes || 0),
+          totalLateMinutes: hoursStats[0]?.total_late_minutes || 0,
+          totalEarlyMinutes: hoursStats[0]?.total_early_minutes || 0
+        },
+        dailyBreakdown: dailyStats.map(day => ({
+          date: day.date,
+          employeeCount: day.employee_count,
+          actualHours: Math.round((day.actual_hours || 0) * 100) / 100,
+          scheduledHours: Math.round((day.scheduled_hours || 0) * 100) / 100,
+          lateCount: day.late_count
+        })),
+        departmentBreakdown: departmentStats.map(dept => ({
+          departmentId: dept.department_id,
+          departmentName: dept.department_name,
+          employeeCount: dept.employee_count,
+          actualHours: Math.round((dept.actual_hours || 0) * 100) / 100,
+          scheduledHours: Math.round((dept.scheduled_hours || 0) * 100) / 100,
+          totalLateMinutes: dept.total_late_minutes || 0,
+          efficiency: dept.scheduled_hours > 0 
+            ? Math.round((dept.actual_hours / dept.scheduled_hours) * 100) 
+            : 0
+        }))
+      };
+    } catch (error) {
+      console.error('Error getting admin dashboard stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get monthly work hours for all employees (1 công = 1 giờ làm việc)
+   * @param {number} year 
+   * @param {number} month (1-12)
+   * @returns {Promise<Array>}
+   */
+  static async getMonthlyWorkHours(year, month) {
+    try {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // Last day of month
+
+      const [results] = await connection.query(`
+        SELECT 
+          e.employee_id,
+          e.full_name,
+          d.department_name,
+          p.position_name,
+          COUNT(DISTINCT dt.work_date) as total_work_days,
+          SUM(
+            CASE 
+              WHEN dt.check_in_time IS NOT NULL AND dt.check_out_time IS NOT NULL 
+              THEN TIMESTAMPDIFF(MINUTE, 
+                CONCAT(dt.work_date, ' ', dt.check_in_time),
+                CONCAT(dt.work_date, ' ', dt.check_out_time)
+              ) / 60.0
+              ELSE 0 
+            END
+          ) as total_actual_hours,
+          SUM(
+            CASE 
+              WHEN ws.start_time IS NOT NULL AND ws.end_time IS NOT NULL
+              THEN TIMESTAMPDIFF(MINUTE, 
+                CONCAT(dt.work_date, ' ', ws.start_time),
+                CONCAT(dt.work_date, ' ', ws.end_time)
+              ) / 60.0
+              ELSE 0 
+            END
+          ) as total_scheduled_hours,
+          SUM(COALESCE(dt.minutes_late, 0)) as total_late_minutes,
+          SUM(COALESCE(dt.minutes_early, 0)) as total_early_minutes,
+          COUNT(DISTINCT CASE WHEN dt.minutes_late > 0 THEN dt.work_date END) as late_days,
+          COUNT(DISTINCT CASE WHEN dt.check_in_time IS NULL THEN dt.work_date END) as absent_days
+        FROM EMPLOYEE e
+        LEFT JOIN DEPARTMENT d ON e.department_id = d.department_id
+        LEFT JOIN POSITION p ON e.position_id = p.position_id
+        LEFT JOIN DAILY_TIMESHEET dt ON e.employee_id = dt.employee_id 
+          AND dt.work_date BETWEEN ? AND ?
+        LEFT JOIN WORK_SHIFT ws ON dt.shift_id = ws.shift_id
+        WHERE e.status = 'active'
+        GROUP BY e.employee_id, e.full_name, d.department_name, p.position_name
+        ORDER BY e.full_name ASC
+      `, [startDate, endDate]);
+
+      return results.map(row => ({
+        employeeId: row.employee_id,
+        fullName: row.full_name,
+        departmentName: row.department_name || 'Chưa phân bổ',
+        positionName: row.position_name || 'Chưa có',
+        totalWorkDays: row.total_work_days || 0,
+        totalActualHours: Math.round((row.total_actual_hours || 0) * 100) / 100,
+        totalScheduledHours: Math.round((row.total_scheduled_hours || 0) * 100) / 100,
+        totalCong: Math.round((row.total_actual_hours || 0) * 100) / 100, // 1 công = 1 giờ
+        totalLateMinutes: row.total_late_minutes || 0,
+        totalEarlyMinutes: row.total_early_minutes || 0,
+        lateDays: row.late_days || 0,
+        absentDays: row.absent_days || 0,
+        efficiency: row.total_scheduled_hours > 0 
+          ? Math.round((row.total_actual_hours / row.total_scheduled_hours) * 100) 
+          : 0
+      }));
+    } catch (error) {
+      console.error('Error getting monthly work hours:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = DailyTimesheetModel;

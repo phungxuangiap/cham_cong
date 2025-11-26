@@ -172,6 +172,20 @@ router.post('/timesheets/generate',
   AuthController.manualGenerateTimesheets
 );
 
+// Get admin dashboard statistics - Admin only
+router.get('/admin-dashboard-stats',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdmin,
+  AuthController.getAdminDashboardStats
+);
+
+// Get monthly work hours - HR/Admin only
+router.get('/monthly-work-hours',
+  AuthMiddleware.verifyAccessToken,
+  AuthMiddleware.verifyAdminOrHR,
+  AuthController.getMonthlyWorkHours
+);
+
 // User check-in - all authenticated users
 router.post('/attendance/check-in',
   AuthMiddleware.verifyAccessToken,

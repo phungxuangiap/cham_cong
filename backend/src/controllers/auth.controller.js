@@ -77,8 +77,6 @@ class AuthController {
 
   static async logout(req, res) {
     try {
-      // In a JWT-based system, logout is typically handled on the client side
-      // by removing the token from localStorage/sessionStorage
       return res.status(200).json({
         message: 'Đăng xuất thành công'
       });
@@ -2095,6 +2093,76 @@ class AuthController {
       console.error('Manual trigger cron error:', error);
       return res.status(500).json({
         message: 'Lỗi khi chạy cron jobs',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get admin dashboard statistics (Admin only)
+   */
+  static async getAdminDashboardStats(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin') {
+        return res.status(403).json({
+          message: 'Chỉ Admin mới có thể xem thống kê dashboard.'
+        });
+      }
+
+      // Default: last 30 days
+      const { startDate, endDate } = req.query;
+      const end = endDate || new Date().toISOString().split('T')[0];
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      const stats = await DailyTimesheetModel.getAdminDashboardStats(start, end);
+
+      return res.status(200).json({
+        message: 'Lấy thống kê dashboard thành công',
+        startDate: start,
+        endDate: end,
+        stats
+      });
+    } catch (error) {
+      console.error('Get admin dashboard stats error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get monthly work hours for all employees (HR/Admin)
+   */
+  static async getMonthlyWorkHours(req, res) {
+    try {
+      const { role } = req.user;
+
+      if (role !== 'Admin' && role !== 'HR') {
+        return res.status(403).json({
+          message: 'Chỉ Admin hoặc HR mới có thể xem thống kê công.'
+        });
+      }
+
+      const { year, month } = req.query;
+      const currentDate = new Date();
+      const targetYear = year ? parseInt(year) : currentDate.getFullYear();
+      const targetMonth = month ? parseInt(month) : currentDate.getMonth() + 1;
+
+      const workHours = await DailyTimesheetModel.getMonthlyWorkHours(targetYear, targetMonth);
+
+      return res.status(200).json({
+        message: 'Lấy thống kê công tháng thành công',
+        year: targetYear,
+        month: targetMonth,
+        workHours
+      });
+    } catch (error) {
+      console.error('Get monthly work hours error:', error);
+      return res.status(500).json({
+        message: 'Lỗi máy chủ nội bộ.',
         error: error.message
       });
     }

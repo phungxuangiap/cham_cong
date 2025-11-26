@@ -178,6 +178,22 @@ const authService = {
     return apiClient.post('/auth/timesheets/generate', { date });
   },
 
+  // Get Admin Dashboard Statistics (Admin only)
+  getAdminDashboardStats: async (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return apiClient.get(`/auth/admin-dashboard-stats?${params.toString()}`);
+  },
+
+  // Get Monthly Work Hours (HR/Admin only)
+  getMonthlyWorkHours: async (year?: number, month?: number) => {
+    const params = new URLSearchParams();
+    if (year) params.append('year', year.toString());
+    if (month) params.append('month', month.toString());
+    return apiClient.get(`/auth/monthly-work-hours?${params.toString()}`);
+  },
+
   // ==================== ATTENDANCE SERVICES ====================
 
   // User Check-in

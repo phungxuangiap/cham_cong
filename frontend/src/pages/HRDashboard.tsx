@@ -82,6 +82,14 @@ const HRDashboard = () => {
   // Overtime Request states
   const [pendingOvertimeRequests, setPendingOvertimeRequests] = useState<any[]>([]);
   const [overtimeRequestsLoading, setOvertimeRequestsLoading] = useState(false);
+
+  // Monthly Work Hours states
+  const [monthlyWorkHours, setMonthlyWorkHours] = useState<any[]>([]);
+  const [monthlyWorkHoursLoading, setMonthlyWorkHoursLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [workHoursSearchTerm, setWorkHoursSearchTerm] = useState('');
+  const [workHoursDisplayCount, setWorkHoursDisplayCount] = useState(10);
   
   useEffect(()=>{
     console.log('Selected contract changed: ', selectedContract);
@@ -102,6 +110,8 @@ const HRDashboard = () => {
     } else if (activeTab === 'requests') {
       fetchPendingLeaveRequests();
       fetchPendingOvertimeRequests();
+    } else if (activeTab === 'home') {
+      fetchMonthlyWorkHours();
     }
   }, [activeTab]);
 
@@ -202,6 +212,41 @@ const HRDashboard = () => {
     } finally {
       setStatsLoading(false);
     }
+  };
+
+  const fetchMonthlyWorkHours = async () => {
+    setMonthlyWorkHoursLoading(true);
+    setWorkHoursDisplayCount(10); // Reset display count when fetching new data
+    try {
+      const response = await authService.getMonthlyWorkHours(selectedYear, selectedMonth);
+      setMonthlyWorkHours(response.data.workHours);
+    } catch (error) {
+      console.error('Error fetching monthly work hours:', error);
+    } finally {
+      setMonthlyWorkHoursLoading(false);
+    }
+  };
+
+  const filteredMonthlyWorkHours = monthlyWorkHours.filter((emp: any) => {
+    if (!workHoursSearchTerm) return true;
+    const search = workHoursSearchTerm.toLowerCase();
+    return (
+      emp.employeeId?.toLowerCase().includes(search) ||
+      emp.fullName?.toLowerCase().includes(search) ||
+      emp.departmentName?.toLowerCase().includes(search)
+    );
+  });
+
+  // Reset display count when search term changes
+  useEffect(() => {
+    setWorkHoursDisplayCount(10);
+  }, [workHoursSearchTerm]);
+
+  const displayedMonthlyWorkHours = filteredMonthlyWorkHours.slice(0, workHoursDisplayCount);
+  const hasMoreWorkHours = workHoursDisplayCount < filteredMonthlyWorkHours.length;
+
+  const loadMoreWorkHours = () => {
+    setWorkHoursDisplayCount(prev => prev + 10);
   };
 
   const fetchEmployeeDetails = async (departmentId: string) => {
@@ -519,109 +564,206 @@ const HRDashboard = () => {
         <div className="p-6">
           {activeTab === 'home' && (
             <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Tổng nhân viên</h3>
-                      <p className="text-4xl font-bold">156</p>
-                    </div>
-                    <UserGroupIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
-
-                <div className="card bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">Yêu cầu chờ</h3>
-                      <p className="text-4xl font-bold">12</p>
-                    </div>
-                    <DocumentTextIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
-
-                <div className="card bg-gradient-to-br from-red-500 to-red-600 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-2 opacity-90">HĐ sắp hết hạn</h3>
-                      <p className="text-4xl font-bold">23</p>
-                    </div>
-                    <CalendarIcon className="h-12 w-12 opacity-80" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Pending Requests */}
-              <div className="card mb-6">
-                <h3 className="text-xl font-bold text-gray-900 mb-4">Yêu cầu chờ duyệt</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 bg-yellow-200 rounded-full flex items-center justify-center">
-                        <DocumentTextIcon className="h-5 w-5 text-yellow-700" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">Nguyễn Văn A - Nghỉ phép</p>
-                        <p className="text-sm text-gray-500">22/12/2024 - 24/12/2024 (3 ngày)</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
-                        Duyệt
-                      </button>
-                      <button className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
-                        Từ chối
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 bg-yellow-200 rounded-full flex items-center justify-center">
-                        <ClockIcon className="h-5 w-5 text-yellow-700" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">Trần Thị B - Tăng ca</p>
-                        <p className="text-sm text-gray-500">21/12/2024 - 4 giờ</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
-                        Duyệt
-                      </button>
-                      <button className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
-                        Từ chối
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contracts Expiring Soon */}
+              {/* Monthly Work Hours Table */}
               <div className="card">
-                <h3 className="text-xl font-bold text-gray-900 mb-4">Hợp đồng sắp hết hạn</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <div>
-                      <p className="font-medium text-gray-900">Lê Văn C</p>
-                      <p className="text-sm text-gray-500">Hợp đồng hết hạn: 31/12/2024</p>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Bảng công tháng</h3>
+                  <div className="flex flex-col md:flex-row gap-3">
+                    {/* Search */}
+                    <div className="relative">
+                      <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Tìm kiếm nhân viên..."
+                        value={workHoursSearchTerm}
+                        onChange={(e) => setWorkHoursSearchTerm(e.target.value)}
+                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                      />
                     </div>
-                    <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-                      Gia hạn
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <div>
-                      <p className="font-medium text-gray-900">Phạm Thị D</p>
-                      <p className="text-sm text-gray-500">Hợp đồng hết hạn: 05/01/2025</p>
+                    {/* Month/Year Selector */}
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          setSelectedMonth(parseInt(e.target.value));
+                          setTimeout(() => fetchMonthlyWorkHours(), 100);
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                          <option key={m} value={m}>Tháng {m}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => {
+                          setSelectedYear(parseInt(e.target.value));
+                          setTimeout(() => fetchMonthlyWorkHours(), 100);
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                      >
+                        {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={fetchMonthlyWorkHours}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      >
+                        Xem
+                      </button>
                     </div>
-                    <button className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
-                      Gia hạn
-                    </button>
                   </div>
                 </div>
+
+                {monthlyWorkHoursLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+                  </div>
+                ) : filteredMonthlyWorkHours.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ClockIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">Không có dữ liệu công cho tháng này</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Mã NV
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Họ tên
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Phòng ban
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Ngày công
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Giờ thực tế
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Giờ chuẩn
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
+                            Tổng công
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Đi muộn
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Hiệu suất
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {displayedMonthlyWorkHours.map((emp: any) => (
+                          <tr key={emp.employeeId} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {emp.employeeId}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">{emp.fullName}</div>
+                              <div className="text-xs text-gray-500">{emp.positionName}</div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                              {emp.departmentName}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center text-sm text-gray-900">
+                              {emp.totalWorkDays}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center text-sm text-blue-600 font-medium">
+                              {emp.totalActualHours}h
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center text-sm text-gray-500">
+                              {emp.totalScheduledHours}h
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center bg-green-50">
+                              <span className="text-lg font-bold text-green-600">{emp.totalCong}</span>
+                              <span className="text-xs text-gray-500 ml-1">công</span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center text-sm">
+                              {emp.lateDays > 0 ? (
+                                <span className="text-red-600">{emp.lateDays} lần ({emp.totalLateMinutes} phút)</span>
+                              ) : (
+                                <span className="text-green-600">0</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center">
+                                <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      emp.efficiency >= 90 ? 'bg-green-500' :
+                                      emp.efficiency >= 70 ? 'bg-yellow-500' : 'bg-red-500'
+                                    }`}
+                                    style={{ width: `${Math.min(emp.efficiency, 100)}%` }}
+                                  ></div>
+                                </div>
+                                <span className={`text-sm font-medium ${
+                                  emp.efficiency >= 90 ? 'text-green-600' :
+                                  emp.efficiency >= 70 ? 'text-yellow-600' : 'text-red-600'
+                                }`}>
+                                  {emp.efficiency}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-100">
+                        <tr>
+                          <td colSpan={3} className="px-4 py-3 text-sm font-bold text-gray-900">
+                            Tổng cộng ({filteredMonthlyWorkHours.length} nhân viên)
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm font-bold text-gray-900">
+                            {filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.totalWorkDays, 0)}
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm font-bold text-blue-600">
+                            {filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.totalActualHours, 0).toFixed(1)}h
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm font-bold text-gray-500">
+                            {filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.totalScheduledHours, 0).toFixed(1)}h
+                          </td>
+                          <td className="px-4 py-3 text-center bg-green-100">
+                            <span className="text-xl font-bold text-green-700">
+                              {filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.totalCong, 0).toFixed(1)}
+                            </span>
+                            <span className="text-xs text-gray-600 ml-1">công</span>
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm font-bold text-red-600">
+                            {filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.lateDays, 0)} lần
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm font-bold text-gray-900">
+                            {filteredMonthlyWorkHours.length > 0 
+                              ? Math.round(filteredMonthlyWorkHours.reduce((sum: number, emp: any) => sum + emp.efficiency, 0) / filteredMonthlyWorkHours.length)
+                              : 0}%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+
+                {/* Display count info and Load More button */}
+                {!monthlyWorkHoursLoading && filteredMonthlyWorkHours.length > 0 && (
+                  <div className="mt-4 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <p className="text-sm text-gray-600">
+                      Hiển thị <span className="font-semibold">{displayedMonthlyWorkHours.length}</span> / <span className="font-semibold">{filteredMonthlyWorkHours.length}</span> nhân viên
+                    </p>
+                    {hasMoreWorkHours && (
+                      <button
+                        onClick={loadMoreWorkHours}
+                        className="px-6 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors font-medium"
+                      >
+                        Xem thêm ({filteredMonthlyWorkHours.length - workHoursDisplayCount} nhân viên còn lại)
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           )}
